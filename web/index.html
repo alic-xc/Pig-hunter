@@ -594,9 +594,20 @@ function topView(key, which = 'side') {
 // path that avoids the drawings (tails overlap the next frame), then lined up on body
 // centre and feet so the cycle doesn't wobble, and packed into one atlas.
 const RUN_SHEETS = { horse: 'horse', beagle: 'beagle', bulldog: 'bulldog', hound: 'bloodhound', shepherd: 'sheepdog', piglet: 'piglet', sow: 'sow', boar: 'boar', razorback: 'razorback', mudhog: 'mudhog', armored: 'ironhog', brute: 'tusker', king: 'bertha' };
+// Smoother runs cut from image-to-video clips (frame count per stride), see tools/video-frames.html
+const VIDEO_RUNS = { horse: 11 }, VIDEO_SIZE = { horse: 1.32 }, ART_V = 4; // ART_V busts the browser cache when frames are re-cut
 const runCache = new Map();
-function runAtlas(key) {
-  if (runCache.has(key)) return runCache.get(key);
+function runAtlas(key, src = 'auto') {
+  const ck = key + ':' + src;
+  if (runCache.has(ck)) return runCache.get(ck);
+  if (src !== 'sheet' && VIDEO_RUNS[key]) {
+    const pv = new Promise(res => {
+      const img = new Image(); img.src = `art/frames-video/${RUN_SHEETS[key]}-run.png?v=${ART_V}`;
+      img.onerror = () => res(runAtlas(key, 'sheet'));
+      img.onload = () => { const n = VIDEO_RUNS[key], tex = new THREE.Texture(img); tex.needsUpdate = true; tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; res({ tex, n, aspect: img.width / n / img.height, size: VIDEO_SIZE[key] ?? 1 }); };
+    });
+    runCache.set(ck, pv); return pv;
+  }
   const p = new Promise(res => {
     if (!RUN_SHEETS[key]) return res(null);
     const img = new Image(); img.src = `art/frames/${RUN_SHEETS[key]}-run.png`;
@@ -650,23 +661,25 @@ function runAtlas(key) {
       res({ tex, n: N, aspect: cellW / cellH });
     };
   });
-  runCache.set(key, p); return p;
+  runCache.set(ck, p); return p;
 }
 // Upright cards: feet on the ground, always turned to the camera, mirrored when heading screen-left.
 const cardGeo2D = new THREE.PlaneGeometry(1, 1); cardGeo2D.translate(0, .5, 0);
 const _cq = new THREE.Quaternion(), _cv = new THREE.Vector3(), _cr = new THREE.Vector3();
-function spriteActor(key, length, { offX = 0, shadow = [.5, .3] } = {}) {
+const SPRITE_SCALE = .72; // overall size of every 2D character
+function spriteActor(key, length, { offX = 0, shadow = [.5, .3], runSrc = 'auto' } = {}) {
+  length *= SPRITE_SCALE; offX *= SPRITE_SCALE;
   const root = new THREE.Group(), body = new THREE.Group(), card = new THREE.Group(); root.add(body); body.add(card);
   const mat = new THREE.MeshBasicMaterial({ alphaTest: .45, side: THREE.DoubleSide, transparent: false, opacity: 1, visible: false });
   const mesh = new THREE.Mesh(cardGeo2D, mat); mesh.position.x = offX; card.add(mesh);
   // `mat` is what the game's hit-flash code talks to; the real material tints from it
   const act = { root, body, card, head: new THREE.Group(), tail: new THREE.Group(), legs: [], phase: rand(0, TAU), sprite: true, mesh, realMat: mat, mat: { emissive: new THREE.Color(), dispose() { mat.dispose(); } }, L: length, Hd: length * .7 };
   mesh.scale.set(length, act.Hd, 1);
-  runAtlas(key).then(run => {
+  runAtlas(key, runSrc).then(run => {
     if (run) {
       // each actor gets its own view of the shared atlas so frames tick independently
       const t = run.tex.clone(); t.repeat.set(1 / run.n, 1); t.offset.set(0, 0); t.needsUpdate = true;
-      act.frames = run.n; act.L = length * 1.12; mat.map = t; mat.visible = true; mat.needsUpdate = true;
+      act.frames = run.n; act.L = length * 1.12 * (run.size ?? 1); mat.map = t; mat.visible = true; mat.needsUpdate = true;
       act.Hd = act.L / run.aspect; mesh.scale.set(act.L, act.Hd, 1); act.onSize?.(act.L, act.Hd); return;
     }
     topView(key, 'side').then(r => { if (!r) return; mat.map = r.tex; mat.visible = true; mat.needsUpdate = true; act.Hd = length / r.aspect; mesh.scale.set(length, act.Hd, 1); act.onSize?.(length, act.Hd); });
@@ -699,7 +712,7 @@ function spriteGait(m, phase, amt = 1) {
 function makeHorse2D() {
   const a = spriteActor('horse', 4.3, { offX: .3, shadow: [.55, .28] });
   // the 3D rider sits in the saddle on the card, so he leans and flips with the horse
-  a.onSize = (L, Hd) => { hunter.root.position.set(.3 - L * .06, Hd * .68, .05); };
+  a.onSize = (L, Hd) => { hunter.root.scale.setScalar(1.12 * SPRITE_SCALE); hunter.root.position.set((.3 - L * .07) * SPRITE_SCALE, Hd * .68, .05); };
   return a;
 }
 function makeDog2D(def, key) {
@@ -2279,7 +2292,7 @@ window.__ph = { topView, runAtlas, get SR() { return SR; }, god() { player.hp = 
 /* =========================================================
    Showroom (#dogs): every breed side by side, for art review
    ========================================================= */
-const SR = { group: null, models: [], view: 'side', run: false, zoom: false, ang: 0, labels: [], focus: null };
+const SR = { gap: 2.3, group: null, models: [], view: 'side', run: false, zoom: false, ang: 0, labels: [], focus: null };
 function openShowroom(kind) {
   state = 'showroom';
   for (const id of ['titleScreen', 'hud', 'touch', 'loading']) $(id).hidden = true;
@@ -2288,11 +2301,13 @@ function openShowroom(kind) {
   for (const p of pigs) removePig(p); pigs = [];
   horse.root.visible = false; for (const d of dogs) d.m.root.visible = false;
   SR.group = new THREE.Group(); scene.add(SR.group);
-  const ids = kind === 'bulldog' ? ['bulldog'] : ['beagle2d', ...DOG_ORDER];
+  const ids = kind === 'horse' ? ['horse-sheet', 'horse-video'] : kind === 'bulldog' ? ['bulldog'] : ['beagle2d', ...DOG_ORDER];
+  if (kind === 'horse') { $('srTitle').textContent = 'Horse gallop: before / after'; SR.run = true; SR.gap = 4; }
   if (kind === 'bulldog') { $('srTitle').textContent = 'Bulldog — 3D study'; SR.focus = 0; SR.fh = 1.05; }
-  const mk = id => id === 'beagle2d' ? makeCutoutDog(DOGS.beagle, 'beagle') : makeDog(DOGS[id], { force3d: true });
-  SR.models = ids.map((id, i) => { const m = mk(id); m.root.position.set((i - (ids.length - 1) / 2) * 2.3, 0, 0); SR.group.add(m.root); return m; });
-  $('srLabels').innerHTML = ids.map(id => `<div class="sr-label">${id === 'beagle2d' ? 'Beagle (2D test)' : DOGS[id].name}</div>`).join('');
+  const mk = id => id.startsWith('horse-') ? spriteActor('horse', 4.3, { offX: .3, runSrc: id === 'horse-sheet' ? 'sheet' : 'auto' }) : id === 'beagle2d' ? makeCutoutDog(DOGS.beagle, 'beagle') : makeDog(DOGS[id], { force3d: true });
+  SR.models = ids.map((id, i) => { const m = mk(id); m.root.position.set((i - (ids.length - 1) / 2) * SR.gap, 0, 0); SR.group.add(m.root); return m; });
+  const label = id => ({ 'horse-sheet': 'Before: 6 drawn frames', 'horse-video': 'After: 11 video frames', beagle2d: 'Beagle (2D test)' })[id] ?? DOGS[id].name;
+  $('srLabels').innerHTML = ids.map(id => `<div class="sr-label">${label(id)}</div>`).join('');
   SR.labels = [...$('srLabels').children];
   $('showroom').hidden = false;
   document.querySelectorAll('.sr-bar [data-view]').forEach(b => b.addEventListener('click', () => { SR.view = b.dataset.view; srButtons(); }));
@@ -2318,8 +2333,8 @@ function updateShowroom(dt) {
     if (m.cutout) { m.tail.rotation.x = 0; m.tail.rotation.z = Math.sin(T * (SR.run ? 14 : 5)) * .18; m.ear.rotation.z = SR.run ? Math.sin(m.phase) * .25 : 0; m.body.rotation.z = SR.run ? Math.cos(m.phase) * .05 : 0; }
   }
   camera.updateMatrixWorld();
-  for (const m of SR.models) if (m.face) m.face(rot);
-  const a = VW / VH, span = SR.models.length * 2.3;
+  for (const m of SR.models) if (m.sprite) { m.phase += SR.run ? dt * 11.5 : 0; spriteGait(m, m.phase); } else if (m.face) m.face(rot);
+  const a = VW / VH, span = SR.models.length * SR.gap;
   let h = Math.max(1.25, (span / 2 + .3) / a);
   if (SR.zoom) h *= .5;
   const fx = SR.focus != null ? SR.models[SR.focus].root.position.x : 0;
@@ -2342,6 +2357,7 @@ resetGame(); state = 'title';
 G.updateMatrixWorld(true);
 $('loading').hidden = true;
 if (location.hash === '#dogs') openShowroom('dogs');
+if (location.hash === '#horse') openShowroom('horse');
 if (location.hash === '#bulldog') openShowroom('bulldog');
 requestAnimationFrame(frame);
 </script>

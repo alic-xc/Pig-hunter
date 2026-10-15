@@ -1,0 +1,15 @@
+Use the first frame as the exact character reference. Create a clean 2D sprite animation for frame extraction.
+
+The saddled horse GALLOPS IN PLACE in a smooth, natural, repeating gallop cycle, side view facing right: front legs reach far forward, hind legs push off, the body stretches long with all four hooves off the ground, front hooves land, hind legs swing forward under the body, and again. The neck and head nod gently with each stride, the mane and tail flow and bounce. Several identical strides in a row, like a real horse at a steady gallop.
+
+For sprite extraction:
+- fixed camera, no camera movement, no zoom, no pan, no rotation
+- the horse stays in the centre of the frame and does NOT travel across the screen (galloping on the spot, like on a treadmill)
+- same size in every frame, full body always visible
+- side view facing right the whole time, no turning around
+- no rider ever appears
+- plain solid bright green background (#00FF00) the whole time, no ground, no shadow, no scenery, no dust, no other objects
+
+Keep the design exactly unchanged: same 2D hand-painted style, same dark-brown outlines, same chestnut coat, dark brown mane and tail, white blaze, white socks, dark hooves, same western saddle with red-and-cream striped blanket, same bridle and reins, same proportions.
+
+Strictly do NOT add: motion blur, speed lines, smears, trails, afterimages, particles, dust, glow, light changes, text, or any extra objects.

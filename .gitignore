@@ -5,3 +5,5 @@ export_presets.cfg
 
 .DS_Store
 web/.claude/
+.env
+web/art/video-src/
