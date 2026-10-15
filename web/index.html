@@ -365,7 +365,7 @@ function resize() {
   VW = window.innerWidth; VH = window.innerHeight;
   renderer.setSize(VW, VH, false);
   const a = VW / VH;
-  halfH = Math.max(7.4, 6.8 / a); halfW = halfH * a;
+  halfH = Math.max(8.5, 7.8 / a); halfW = halfH * a;
   const f = Math.min(1, halfW / 14, halfH / 11.5); BX = 10 * f; BZ = 6.5 * f;
   camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
   camera.updateProjectionMatrix();
@@ -535,7 +535,7 @@ function tube(points, r, color) {
    top-down view (middle drawing) of its ChatGPT reference sheet.
    Run-cycle frame sheets will replace these one animal at a time.
    ========================================================= */
-const MODE_2D = true;
+const MODE_2D = false; // 2D sprite version lives on the 2d-sprites branch
 const SPRITE_SHEETS = {
   horse: 'horse-sheet', beagle: 'dog-beagle-sheet', bulldog: 'dog-bulldog-sheet', hound: 'dog-bloodhound-sheet', shepherd: 'dog-sheepdog-sheet',
   piglet: 'pig-piglet-sheet', sow: 'pig-sow-sheet', boar: 'pig-boar-sheet', razorback: 'pig-razorback-sheet', mudhog: 'pig-mudhog-sheet',
