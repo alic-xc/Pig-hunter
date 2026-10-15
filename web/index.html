@@ -432,40 +432,148 @@ for (let i = 0; i < 28; i++) {
 /* =========================================================
    Models
    ========================================================= */
+/* ---------- loft: smooth organic shapes swept through elliptical sections ---------- */
+const cr = (p0, p1, p2, p3, t) => { const t2 = t * t, t3 = t2 * t; return .5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3); };
+// secs: [x, y, z, halfWidth(side), halfDepth(perpendicular to path)]
+function loftGeo(secs, { radial = 16, steps = 5, inflate = 0, n = 2, arc0 = 0, arc1 = TAU, open = false } = {}) {
+  const S = secs.map(s => ({ x: s[0], y: s[1], z: s[2] || 0, w: s[3], h: s[4] }));
+  const K = ['x', 'y', 'z', 'w', 'h'], pts = [];
+  for (let i = 0; i < S.length - 1; i++) {
+    const p0 = S[Math.max(0, i - 1)], p1 = S[i], p2 = S[i + 1], p3 = S[Math.min(S.length - 1, i + 2)];
+    for (let k = 0; k < steps; k++) { const t = k / steps, o = {}; for (const key of K) o[key] = cr(p0[key], p1[key], p2[key], p3[key], t); pts.push(o); }
+  }
+  pts.push({ ...S[S.length - 1] });
+  const N = pts.length, pos = [], uv = [], idx = [], lens = [0];
+  for (let i = 1; i < N; i++) lens.push(lens[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y, pts[i].z - pts[i - 1].z));
+  const total = lens[N - 1] || 1, side = new THREE.Vector3(0, 0, 1), tan = new THREE.Vector3(), up = new THREE.Vector3();
+  for (let i = 0; i < N; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N - 1, i + 1)];
+    tan.set(b.x - a.x, b.y - a.y, b.z - a.z).normalize(); up.crossVectors(side, tan).normalize();
+    const p = pts[i], w = Math.max(.001, p.w + inflate), h = Math.max(.001, p.h + inflate);
+    for (let k = 0; k <= radial; k++) {
+      const ang = arc0 + k / radial * (arc1 - arc0), c = Math.cos(ang), s = Math.sin(ang);
+      const ce = Math.sign(c) * Math.pow(Math.abs(c), 2 / n) * w, se = Math.sign(s) * Math.pow(Math.abs(s), 2 / n) * h;
+      pos.push(p.x + up.x * se + side.x * ce, p.y + up.y * se + side.y * ce, p.z + up.z * se + side.z * ce);
+      uv.push(lens[i] / total, k / radial);
+    }
+  }
+  for (let i = 0; i < N - 1; i++) for (let k = 0; k < radial; k++) { const a = i * (radial + 1) + k, b = a + radial + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+  if (!open) {
+    const c0 = pos.length / 3; pos.push(pts[0].x, pts[0].y, pts[0].z); uv.push(0, .5);
+    const c1 = c0 + 1; pos.push(pts[N - 1].x, pts[N - 1].y, pts[N - 1].z); uv.push(1, .5);
+    const o = (N - 1) * (radial + 1);
+    for (let k = 0; k < radial; k++) { idx.push(c0, k, k + 1); idx.push(c1, o + k + 1, o + k); }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+  g.computeVertexNormals();
+  if (!open) { // weld the seam normals so the toon bands don't show a crease
+    const nr = g.attributes.normal;
+    for (let i = 0; i < N; i++) { const a = i * (radial + 1), b = a + radial; const x = nr.getX(a) + nr.getX(b), y = nr.getY(a) + nr.getY(b), z = nr.getZ(a) + nr.getZ(b), l = Math.hypot(x, y, z) || 1; nr.setXYZ(a, x / l, y / l, z / l); nr.setXYZ(b, x / l, y / l, z / l); }
+  }
+  return g;
+}
+function loft(secs, mat, o = {}) {
+  const m = new THREE.Mesh(loftGeo(secs, o), mat);
+  const t = o.outline ?? .032;
+  if (t > 0 && !o.open) m.add(new THREE.Mesh(loftGeo(secs, { ...o, inflate: t }), OUTLINE));
+  return m;
+}
+const texLoader = new THREE.TextureLoader();
+function texMat(path, fallback, ru = 1, rv = 1, extra = {}) {
+  const mat = new THREE.MeshToonMaterial({ color: fallback, gradientMap: gradMap, ...extra });
+  texLoader.load(path, t => { t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(ru, rv); t.anisotropy = 4; mat.map = t; mat.color.set(extra.tint ?? 0xffffff); mat.needsUpdate = true; });
+  return mat;
+}
+function tube(points, r, color) {
+  const g = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p))), 24, r, 5, false);
+  return new THREE.Mesh(g, toon(color));
+}
+
+/* ---------- horse: chestnut quarter horse, from art/horse-sheet.png ---------- */
 function makeHorse() {
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  const C = { coat: 0x9a6034, dark: 0x3a2416, light: 0xd9a678, hoof: 0x2b241f, blanket: 0xc4442e, stripe: 0xf3d9a4, saddle: 0x5e3420 };
-  body.add(part('sphere', C.coat, [0, 1.62, 0], [1.15, .56, .5]));
-  body.add(part('sphere', C.coat, [.78, 1.8, 0], [.52, .52, .47]));
-  body.add(part('sphere', C.coat, [-.82, 1.7, 0], [.52, .52, .49]));
-  body.add(part('cyl', C.coat, [1.3, 2.32, 0], [.27, 1.05, .25], [0, 0, -0.68]));
-  body.add(part('box', C.dark, [1.12, 2.5, 0], [.16, 1.0, .09], [0, 0, -0.68]));
-  const head = new THREE.Group(); head.position.set(1.74, 2.8, 0); body.add(head);
-  head.add(part('box', C.coat, [.22, 0, 0], [.72, .34, .32], [0, 0, -0.5]));
-  head.add(part('box', C.light, [.52, -.17, 0], [.26, .27, .3], [0, 0, -0.5]));
-  head.add(part('box', 0xf6ead5, [.24, .07, 0], [.4, .06, .325], [0, 0, -0.5], { outline: 0 }));
-  head.add(part('cone', C.dark, [-.06, .3, .1], [.07, .24, .07], [.25, 0, 0]));
-  head.add(part('cone', C.dark, [-.06, .3, -.1], [.07, .24, .07], [-.25, 0, 0]));
-  for (const s of [1, -1]) head.add(part('sphere', 0x111111, [.16, .1, .165 * s], [.05, .055, .03], [0, 0, 0], { outline: 0 }));
-  body.add(part('box', C.blanket, [-.08, 1.98, 0], [.9, .42, 1.08]));
-  body.add(part('box', C.stripe, [-.08, 1.98, 0], [.92, .07, 1.1], [0, 0, 0], { outline: 0 }));
-  body.add(part('box', C.saddle, [-.08, 2.22, 0], [.64, .14, .7]));
-  body.add(part('box', C.saddle, [.2, 2.36, 0], [.12, .22, .24]));
-  const tail = new THREE.Group(); tail.position.set(-1.28, 1.88, 0); body.add(tail);
-  tail.add(part('cyl', C.dark, [0, -.45, 0], [.13, .95, .13]));
-  tail.rotation.z = -.8;
-  const legs = [];
-  for (const [lx, lz, off] of [[.85, .24, 0], [.85, -.24, .5], [-.85, .24, Math.PI], [-.85, -.24, Math.PI + .5]]) {
-    const pivot = new THREE.Group(); pivot.position.set(lx, 1.35, lz); body.add(pivot);
-    pivot.add(part('cyl', C.coat, [0, -.32, 0], [.14, .7, .14]));
-    const knee = new THREE.Group(); knee.position.set(0, -.66, 0); pivot.add(knee);
-    knee.add(part('cyl', C.coat, [0, -.27, 0], [.1, .56, .1]));
-    knee.add(part('cyl', 0xf6ead5, [0, -.47, 0], [.115, .1, .115], [0, 0, 0], { outline: 0 }));
-    knee.add(part('cyl', C.hoof, [0, -.58, 0], [.125, .12, .125]));
-    legs.push({ pivot, knee, off, front: lx > 0 });
+  const coat = texMat('art/tex/horse-coat.jpg', 0xb35a2b, 2.5, 2);
+  const C = { points: 0x4a2a1a, mane: 0x3f2416, sock: 0xf3e6cf, hoof: 0x3b2d26, muzzle: 0x7a4430, leather: 0x5b331d, leather2: 0x6e4126, blanket: 0xb8352a, cream: 0xf1dfba, brass: 0xc99a3c };
+  const bodySecs = [[-1.36, 1.86, 0, .05, .07], [-1.25, 1.79, 0, .3, .36], [-.95, 1.71, 0, .47, .47], [-.55, 1.64, 0, .49, .45], [-.1, 1.6, 0, .52, .47], [.3, 1.62, 0, .5, .49], [.68, 1.69, 0, .43, .5], [.98, 1.76, 0, .33, .44], [1.12, 1.82, 0, .21, .31], [1.19, 1.86, 0, .05, .08]];
+  body.add(loft(bodySecs, coat, { radial: 22, steps: 6 }));
+  // blanket and saddle
+  const blanketSecs = [[-.46, 1.635, 0, .49, .455], [-.1, 1.6, 0, .52, .47], [.3, 1.62, 0, .5, .49], [.44, 1.64, 0, .48, .495]];
+  const sideMat = c => new THREE.MeshToonMaterial({ color: c, gradientMap: gradMap, side: THREE.DoubleSide });
+  body.add(loft(blanketSecs, sideMat(C.blanket), { open: true, inflate: .03, arc0: -.5, arc1: Math.PI + .5, radial: 20, steps: 4 }));
+  for (const [x0, x1] of [[-.46, -.36], [.33, .44]]) body.add(loft([[x0, 1.63, 0, .5, .465], [x1, 1.63, 0, .5, .48]], sideMat(C.cream), { open: true, inflate: .036, arc0: -.5, arc1: Math.PI + .5, radial: 20, steps: 1 }));
+  for (const [a0, a1] of [[-.5, -.38], [Math.PI + .38, Math.PI + .5]]) body.add(loft(blanketSecs, sideMat(C.cream), { open: true, inflate: .038, arc0: a0, arc1: a1, radial: 3, steps: 4 }));
+  body.add(loft([[-.44, 2.12, 0, .2, .05], [-.32, 2.17, 0, .27, .08], [0, 2.15, 0, .3, .07], [.22, 2.19, 0, .26, .09], [.33, 2.25, 0, .12, .08]], toon(C.leather), { radial: 16 }));
+  body.add(part('sphere', C.leather, [-.39, 2.26, 0], [.08, .13, .26]));
+  body.add(part('cyl', C.leather2, [.33, 2.38, 0], [.05, .2, .05]));
+  body.add(part('cyl', C.leather2, [.34, 2.49, 0], [.09, .04, .09]));
+  for (const s of [1, -1]) {
+    body.add(part('box', C.leather2, [-.02, 1.84, .55 * s], [.52, .44, .04], [.14 * s, 0, 0]));
+    body.add(part('box', C.leather, [.05, 1.6, .58 * s], [.05, .2, .03], [0, 0, 0], { outline: .015 }));
+    body.add(part('torus', C.brass, [.05, 1.44, .58 * s], [.08, .1, .07], [0, 0, 0], { outline: .015 }));
   }
+  body.add(loft([[.12, 2.0, 0, .55, .5], [.2, 2.0, 0, .55, .5]], sideMat(C.leather), { open: true, inflate: .04, arc0: Math.PI + .3, arc1: TAU - .3, radial: 10, steps: 1 }));
+
+  // neck + head swing together from the withers
+  const neck = new THREE.Group(); neck.position.set(.62, 1.98, 0); body.add(neck);
+  const N = new THREE.Group(); N.position.set(-.62, -1.98, 0); neck.add(N);
+  const neckSecs = [[.48, 1.9, 0, .31, .44], [.88, 2.3, 0, .26, .36], [1.18, 2.68, 0, .2, .27], [1.38, 2.96, 0, .155, .2], [1.48, 3.09, 0, .14, .16]];
+  N.add(loft(neckSecs, coat, { radial: 18, steps: 5 }));
+  const nd = new THREE.Vector2(1.48 - .48, 3.09 - 1.9).normalize(), nu = new THREE.Vector2(-nd.y, nd.x);
+  const crest = neckSecs.map(([x, y, , , h]) => [x + nu.x * h * .9, y + nu.y * h * .9]);
+  N.add(loft(crest.map(([x, y], i) => [x, y, .03, .07, .1 - i * .012]), toon(C.mane), { radial: 10 }));
+  for (let i = 0; i < 7; i++) {
+    const t = i / 6, j = Math.min(3, Math.floor(t * 4)), f = t * 4 - j, a = crest[j], b = crest[j + 1];
+    const x = lerp(a[0], b[0], f), y = lerp(a[1], b[1], f);
+    N.add(part('cone', C.mane, [x + nu.x * .05, y + nu.y * .05, .06], [.08, .26 - t * .08, .045], [0, 0, Math.atan2(nu.y, nu.x) - Math.PI / 2 + .55], { outline: .02 }));
+  }
+  const headSecs = [[1.4, 3.16, 0, .13, .13], [1.55, 3.12, 0, .16, .21], [1.72, 2.99, 0, .15, .2], [1.9, 2.84, 0, .125, .15], [2.05, 2.71, 0, .11, .125], [2.15, 2.61, 0, .1, .115], [2.21, 2.53, 0, .05, .06]];
+  N.add(loft(headSecs, coat, { radial: 16, steps: 5 }));
+  N.add(part('sphere', C.muzzle, [2.12, 2.6, 0], [.13, .115, .105], [0, 0, -.75], { outline: .02 }));
+  for (const s of [1, -1]) {
+    N.add(part('sphere', 0, [1.6, 2.98, .085 * s], [.19, .17, .09], [0, 0, -.5], { mat: coat, outline: .02 }));
+    N.add(part('sphere', 0x1a120e, [1.68, 3.09, .135 * s], [.04, .035, .025], [0, 0, -.3], { outline: 0 }));
+    N.add(part('sphere', 0xffffff, [1.695, 3.1, .155 * s], [.012, .012, .01], [0, 0, 0], { outline: 0 }));
+    N.add(part('sphere', 0x2a1a14, [2.17, 2.58, .05 * s], [.03, .022, .02], [0, 0, 0], { outline: 0 }));
+    N.add(part('cone', 0, [1.46, 3.31, .075 * s], [.055, .18, .035], [.18 * s, 0, .12], { mat: coat, outline: .02 }));
+    N.add(part('cone', 0x2a1a12, [1.468, 3.3, .078 * s], [.03, .12, .02], [.18 * s, 0, .12], { outline: 0 }));
+  }
+  N.add(part('sphere', C.sock, [1.93, 2.97, 0], [.32, .03, .065], [0, 0, -.72], { outline: 0 }));
+  N.add(part('sphere', C.mane, [1.53, 3.24, 0], [.11, .05, .07], [0, 0, -.55], { outline: .015 }));
+  // bridle and reins
+  N.add(loft([[2.0, 2.73, 0, .118, .118], [2.03, 2.7, 0, .118, .118]], toon(C.leather), { open: true, arc0: 0, arc1: TAU, radial: 16, steps: 1, inflate: .02 }));
+  for (const s of [1, -1]) {
+    N.add(tube([[2.0, 2.73, .13 * s], [1.8, 2.92, .15 * s], [1.6, 3.12, .15 * s], [1.48, 3.25, .1 * s]], .016, C.leather));
+    N.add(tube([[2.05, 2.66, .12 * s], [1.75, 2.42, .3 * s], [1.3, 2.3, .34 * s], [.95, 2.2, .3 * s]], .014, C.leather));
+  }
+  N.add(tube([[1.48, 3.25, .1], [1.52, 3.22, 0], [1.48, 3.25, -.1]], .016, C.leather));
+
+  const tail = new THREE.Group(); tail.position.set(-1.3, 1.98, 0); body.add(tail);
+  tail.add(loft([[0, 0, 0, .09, .1], [-.12, -.12, 0, .15, .17], [-.22, -.42, 0, .18, .2], [-.24, -.8, 0, .16, .17], [-.2, -1.06, 0, .09, .1], [-.16, -1.2, 0, .015, .015]], toon(C.mane), { radial: 12 }));
+
+  const legs = [];
+  const makeLeg = (front, lx, lz, off) => {
+    const pivot = new THREE.Group(); pivot.position.set(lx, front ? 1.32 : 1.42, lz); body.add(pivot);
+    const knee = new THREE.Group();
+    if (front) {
+      pivot.add(loft([[0, .2, 0, .16, .22], [.02, -.08, 0, .14, .19], [0, -.38, 0, .1, .12], [0, -.62, 0, .082, .09]], coat, { radial: 12 }));
+      knee.position.set(0, -.62, 0);
+      knee.add(loft([[0, .03, 0, .082, .092], [0, -.1, 0, .065, .072], [0, -.36, 0, .066, .07], [0, -.47, 0, .078, .088]], toon(C.points), { radial: 10 }));
+      knee.add(loft([[0, -.46, 0, .075, .084], [.02, -.53, 0, .068, .072], [.04, -.6, 0, .068, .074]], toon(C.sock), { radial: 10 }));
+      knee.add(loft([[.04, -.59, 0, .07, .076], [.06, -.71, 0, .095, .1]], toon(C.hoof), { radial: 10 }));
+    } else {
+      pivot.add(loft([[0, .15, 0, .22, .28], [-.03, -.15, 0, .17, .25], [-.12, -.42, 0, .11, .15], [-.2, -.66, 0, .08, .11]], coat, { radial: 12 }));
+      knee.position.set(-.2, -.66, 0);
+      knee.add(loft([[0, .04, 0, .08, .11], [0, -.1, 0, .065, .075], [0, -.3, 0, .066, .07], [0, -.42, 0, .078, .088]], toon(C.points), { radial: 10 }));
+      knee.add(loft([[0, -.41, 0, .075, .084], [.02, -.49, 0, .068, .072], [.04, -.56, 0, .068, .074]], toon(C.sock), { radial: 10 }));
+      knee.add(loft([[.04, -.55, 0, .07, .076], [.06, -.67, 0, .095, .1]], toon(C.hoof), { radial: 10 }));
+    }
+    pivot.add(knee);
+    legs.push({ pivot, knee, off, front });
+  };
+  makeLeg(true, .76, .25, 0); makeLeg(true, .76, -.25, .5); makeLeg(false, -.84, .26, Math.PI); makeLeg(false, -.84, -.26, Math.PI + .5);
   root.add(blob(2.2, .95));
-  return { root, body, head, tail, legs, phase: 0 };
+  return { root, body, head: neck, tail, legs, phase: 0 };
 }
 
 function makeGun(id) {
@@ -513,8 +621,8 @@ function makeHunter() {
   const root = new THREE.Group();
   const jeans = 0x3c5579, boot = 0x3a2416, shirt = 0x2f7d8a, skin = 0xf0c09a, hat = 0x7a4b25, vest = 0x6a4527;
   for (const s of [1, -1]) {
-    root.add(part('cyl', jeans, [.05, -.12, .33 * s], [.12, .6, .12], [-.38 * s, 0, 0]));
-    root.add(part('box', boot, [.12, -.42, .45 * s], [.28, .16, .15]));
+    root.add(part('cyl', jeans, [.05, -.16, .4 * s], [.12, .62, .12], [-.42 * s, 0, 0]));
+    root.add(part('box', boot, [.12, -.46, .53 * s], [.28, .16, .15]));
   }
   root.add(part('cyl', jeans, [0, .02, 0], [.27, .24, .23]));
   const aim = new THREE.Group(); root.add(aim);
@@ -789,7 +897,7 @@ let heldGun = null;
 const scenery = [];
 
 const horse = makeHorse(); G.add(horse.root);
-const hunter = makeHunter(); hunter.root.position.set(-.08, 2.2, 0); horse.body.add(hunter.root);
+const hunter = makeHunter(); hunter.root.position.set(-.06, 2.3, 0); horse.body.add(hunter.root);
 
 function setHeldGun(id) {
   if (hunter.gun) hunter.gunMount.remove(hunter.gun);
