@@ -139,6 +139,13 @@ kbd { font-family: var(--ui); background: var(--paper); color: var(--ink); borde
 .hurt-flash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 40%, rgba(220,40,20,.55)); opacity: 0; transition: opacity .35s; }
 .loading { position: absolute; inset: 0; display: grid; place-items: center; background: #3f7a52; font-family: var(--display); font-size: 28px; color: var(--paper); }
 @media (max-width: 560px) { .tag { font-size: 15px; padding: 2px 7px; } .stat { font-size: 14px; } .hearts svg { width: 15px; height: 15px; } .slot { width: 38px; height: 38px; } .slot svg { width: 26px; height: 26px; } .hud-top { top: calc(56px + env(safe-area-inset-top, 0px)); } .boss-bar { top: calc(118px + env(safe-area-inset-top, 0px)); } }
+.showroom { position: absolute; inset: 0; pointer-events: none; }
+.showroom h2 { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 0; right: 0; margin: 0; text-align: center; font-family: var(--display); font-weight: 400; font-size: clamp(24px, 4vw, 38px); color: var(--paper); text-shadow: 0 3px 0 var(--ink); }
+.sr-labels { position: absolute; inset: 0; }
+.sr-label { position: absolute; transform: translate(-50%, 0); font-family: var(--ui); font-size: 17px; color: var(--ink); background: var(--paper); border: 3px solid var(--ink); border-radius: 6px; padding: 2px 10px; white-space: nowrap; box-shadow: 0 3px 0 var(--ink); }
+.sr-bar { position: absolute; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; width: min(760px, calc(100vw - 32px)); pointer-events: auto; }
+.sr-bar .btn.alt { font-family: var(--ui); font-size: 15px; padding: 6px 14px 5px; }
+.sr-bar .btn.alt.on { background: var(--gold); }
 @media (prefers-reduced-motion: reduce) { .banner, .card, .btn { transition: none; } }
 </style>
 
@@ -225,6 +232,20 @@ kbd { font-family: var(--ui); background: var(--paper); color: var(--ink); borde
       <div class="btn-row"><button class="btn" id="againBtn">Ride Again</button><button class="btn alt" id="menuBtn">Main menu</button></div>
     </div>
   </div>
+  <div class="showroom" id="showroom" hidden>
+    <h2 id="srTitle">Meet the pack</h2>
+    <div class="sr-labels" id="srLabels"></div>
+    <div class="sr-bar" role="toolbar" aria-label="Showroom view">
+      <button class="btn alt" data-view="side">Side</button>
+      <button class="btn alt" data-view="front">Front</button>
+      <button class="btn alt" data-view="back">Back</button>
+      <button class="btn alt" data-view="top">Top</button>
+      <button class="btn alt" data-view="game">Game camera</button>
+      <button class="btn alt" data-view="spin">Spin</button>
+      <button class="btn alt" id="srRun">Run</button>
+      <button class="btn alt" id="srZoom">Zoom in</button>
+    </div>
+  </div>
   <div class="loading" id="loading">Saddling up…</div>
 </div>
 
@@ -283,11 +304,25 @@ const WEAPONS = {
   dynamite: { name: 'Dynamite', desc: 'Lobbed sticks that blow a whole herd off its hooves.', dmg: 55, rate: 0.45, range: 12, speed: 0, count: 1, aoe: 3.6, kind: 'dynamite', snd: 'throw' },
 };
 const WEAPON_ORDER = ['revolver', 'shotgun', 'rifle', 'gatling', 'crossbow', 'dynamite'];
+const sstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+const mixHex = (a, b, t) => { const r = lerp(a >> 16 & 255, b >> 16 & 255, t), g = lerp(a >> 8 & 255, b >> 8 & 255, t), bl = lerp(a & 255, b & 255, t); return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(bl); };
 const DOGS = {
-  beagle:   { name: 'Beagle', desc: 'A quick little biter that darts from hog to hog.', speed: 15, dmg: 7, biteRate: 3, scale: .88, c: { body: 0xc98a4b, patch: 0xf3eadb, ear: 0x6b3d1f, snout: 0xf3eadb } },
-  bulldog:  { name: 'Bulldog', desc: 'Slow, heavy bites that stun hogs in their tracks.', speed: 10, dmg: 17, biteRate: 1.4, stun: .9, scale: 1.05, wide: true, c: { body: 0xa79a8f, patch: 0xefe6db, ear: 0x6f645c, snout: 0x5a514a } },
-  hound:    { name: 'Bloodhound', desc: 'Sniffs out gold: +1 coin from every hog you bag.', speed: 12.5, dmg: 10, biteRate: 2, gold: 1, scale: 1.0, c: { body: 0x8a4b2a, ear: 0x5a2e18, snout: 0x6a3a22 } },
-  shepherd: { name: 'Sheepdog', desc: 'Bowls hogs away from your horse with every bite.', speed: 14, dmg: 11, biteRate: 1.8, knock: 7, scale: 1.0, earUp: true, c: { body: 0x2b2522, patch: 0xf2ece4, ear: 0x2b2522, snout: 0xf2ece4 } },
+  beagle:   { name: 'Beagle', desc: 'A quick little biter that darts from hog to hog.', speed: 15, dmg: 7, biteRate: 3, scale: .91, look: (() => { const T = 0xc98a4b, B = 0x2b2320, W = 0xf4ecdc; return { coat: T, bw: 1.12, bh: 1.12, len: .94, legL: .96, legW: 1.32, neckH: .37, headW: 1.18, muzzleL: .76, headS: 1.55, eyeS: 1.24, ear: 'floppy', earL: .15, earW: 1.06, earC: 0xa0632c, tail: 'up',
+    paintBody: (x, y, z, sn) => { const k = sstep(.08, .2, sn + .06 * Math.sin(x * 17)) * sstep(-.5, -.42, x) * sstep(.3, .22, x), w = Math.max(sstep(-.18, -.32, sn + .05 * Math.sin(x * 20)), sstep(.32, .42, x) * sstep(.38, .26, sn)); return mixHex(mixHex(T, B, k), W, w); },
+    paintNeck: sn => mixHex(T, W, sstep(-.05, -.25, sn)),
+    paintHead: (x, y, z, sn, cs) => mixHex(T, W, Math.max(sstep(.06, .12, x), sstep(.0, .06, x) * sstep(-.1, -.3, sn), sstep(.38, .5, sn) * sstep(.34, .22, Math.abs(cs)) * sstep(-.1, -.05, x))),
+    paintLeg: f => mixHex(T, W, sstep(.34, .44, f)), paintTail: u => u > .62 ? mixHex(B, W, sstep(.6, .66, u)) : mixHex(T, B, sstep(.14, .24, u)) }; })() },
+  bulldog:  { name: 'Bulldog', desc: 'Slow, heavy bites that stun hogs in their tracks.', speed: 10, dmg: 17, biteRate: 1.4, stun: .9, scale: 1.02, look: (() => { const C = 0xf3ead9, G = 0x796453, spots = [[-.31, 1.35, .22], [.05, 1.8, .18], [-.08, .35, .18], [.22, 4.0, .17], [-.38, 4.7, .19], [.3, 2.5, .14], [-.12, 5.4, .16]]; return { coat: C, bulldog: true, bw: 1.24, bh: 1.08, len: 1.04, legL: 1.06, legW: 1.32, headW: 1.3, muzzleL: .5, neckH: .34, headS: 1.48, skullH: 1.08, eyeS: .92, ear: 'fold', earC: G, tail: 'saber', muzzle: C, chin: true, noseS: 1.18,
+    paintBody: (x, y, z, sn, cs, a) => mixHex(C, G, Math.max(...spots.map(([cx, ca, r]) => sstep(r, r * .7, Math.hypot(x - cx, angDiff(a, ca) * .19))))),
+    paintHead: (x, y, z, sn, cs) => mixHex(C, G, sstep(.1, .065, Math.hypot(x - .04, y - .06)) * sstep(.05, .25, cs)), paintTail: u => mixHex(G, C, sstep(.35, .5, u)) }; })() },
+  hound:    { name: 'Bloodhound', desc: 'Sniffs out gold: +1 coin from every hog you bag.', speed: 12.5, dmg: 10, biteRate: 2, gold: 1, scale: 1.0, look: (() => { const R = 0xb0592b, D = 0x7c3a1c, M = 0x8f4424; return { coat: R, bw: 1.05, bh: 1.1, legL: 1.06, len: 1.06, muzzleL: 1.25, headS: 1.32, ear: 'floppy', earL: .48, earC: 0x7a3518, tail: 'saber', flews: M, flewL: 1.3, wrinkles: D, dewlap: true,
+    paintBody: (x, y, z, sn) => mixHex(R, D, sstep(.2, .42, sn + .08 * Math.sin(x * 14)) * sstep(-.52, -.4, x) * sstep(.36, .24, x)),
+    paintHead: x => mixHex(R, M, sstep(.08, .16, x)), paintTail: u => mixHex(R, D, sstep(.1, .5, u) * .6) }; })() },
+  shepherd: { name: 'Sheepdog', desc: 'Bowls hogs away from your horse with every bite.', speed: 14, dmg: 11, biteRate: 1.8, knock: 7, scale: 1.0, look: (() => { const K = 0x221c1a, W = 0xf2ece4; return { coat: K, bw: .92, bh: .96, legL: 1.1, muzzleL: 1.1, headW: .95, headS: 1.26, ear: 'up', earC: K, tail: 'bushy', fluffy: true,
+    paintBody: (x, y, z, sn) => mixHex(K, W, Math.max(sstep(-.3, -.42, sn + .03 * Math.sin(x * 22)) * sstep(-.36, -.24, x), sstep(.3, .4, x) * sstep(.56, .44, sn))),
+    paintNeck: sn => mixHex(K, W, sstep(.62, .48, sn)),
+    paintHead: (x, y, z, sn, cs) => mixHex(K, W, Math.max(sstep(.04, .11, x), sstep(.28, .4, sn) * sstep(.26, .16, Math.abs(cs)) * sstep(-.12, -.06, x))),
+    paintLeg: f => mixHex(K, W, sstep(.26, .36, f)), paintTail: u => mixHex(K, W, sstep(.66, .76, u)) }; })() },
 };
 const DOG_ORDER = ['beagle', 'bulldog', 'hound', 'shepherd'];
 const PIGS = {
@@ -435,7 +470,8 @@ for (let i = 0; i < 28; i++) {
 /* ---------- loft: smooth organic shapes swept through elliptical sections ---------- */
 const cr = (p0, p1, p2, p3, t) => { const t2 = t * t, t3 = t2 * t; return .5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3); };
 // secs: [x, y, z, halfWidth(side), halfDepth(perpendicular to path)]
-function loftGeo(secs, { radial = 16, steps = 5, inflate = 0, n = 2, arc0 = 0, arc1 = TAU, open = false } = {}) {
+const tmpCol = new THREE.Color();
+function loftGeo(secs, { radial = 16, steps = 5, inflate = 0, n = 2, arc0 = 0, arc1 = TAU, open = false, paint = null } = {}) {
   const S = secs.map(s => ({ x: s[0], y: s[1], z: s[2] || 0, w: s[3], h: s[4] }));
   const K = ['x', 'y', 'z', 'w', 'h'], pts = [];
   for (let i = 0; i < S.length - 1; i++) {
@@ -443,7 +479,7 @@ function loftGeo(secs, { radial = 16, steps = 5, inflate = 0, n = 2, arc0 = 0, a
     for (let k = 0; k < steps; k++) { const t = k / steps, o = {}; for (const key of K) o[key] = cr(p0[key], p1[key], p2[key], p3[key], t); pts.push(o); }
   }
   pts.push({ ...S[S.length - 1] });
-  const N = pts.length, pos = [], uv = [], idx = [], lens = [0];
+  const N = pts.length, pos = [], uv = [], idx = [], lens = [0], col = [];
   for (let i = 1; i < N; i++) lens.push(lens[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y, pts[i].z - pts[i - 1].z));
   const total = lens[N - 1] || 1, side = new THREE.Vector3(0, 0, 1), tan = new THREE.Vector3(), up = new THREE.Vector3();
   for (let i = 0; i < N; i++) {
@@ -453,19 +489,22 @@ function loftGeo(secs, { radial = 16, steps = 5, inflate = 0, n = 2, arc0 = 0, a
     for (let k = 0; k <= radial; k++) {
       const ang = arc0 + k / radial * (arc1 - arc0), c = Math.cos(ang), s = Math.sin(ang);
       const ce = Math.sign(c) * Math.pow(Math.abs(c), 2 / n) * w, se = Math.sign(s) * Math.pow(Math.abs(s), 2 / n) * h;
-      pos.push(p.x + up.x * se + side.x * ce, p.y + up.y * se + side.y * ce, p.z + up.z * se + side.z * ce);
-      uv.push(lens[i] / total, k / radial);
+      const vx = p.x + up.x * se + side.x * ce, vy = p.y + up.y * se + side.y * ce, vz = p.z + up.z * se + side.z * ce;
+      pos.push(vx, vy, vz); uv.push(lens[i] / total, k / radial);
+      if (paint) { tmpCol.setHex(paint(vx, vy, vz, s, c, ((ang % TAU) + TAU) % TAU, lens[i] / total)); col.push(tmpCol.r, tmpCol.g, tmpCol.b); }
     }
   }
   for (let i = 0; i < N - 1; i++) for (let k = 0; k < radial; k++) { const a = i * (radial + 1) + k, b = a + radial + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
   if (!open) {
     const c0 = pos.length / 3; pos.push(pts[0].x, pts[0].y, pts[0].z); uv.push(0, .5);
     const c1 = c0 + 1; pos.push(pts[N - 1].x, pts[N - 1].y, pts[N - 1].z); uv.push(1, .5);
+    if (paint) for (const q of [pts[0], pts[N - 1]]) { tmpCol.setHex(paint(q.x, q.y, q.z, 0, 1, 0, q === pts[0] ? 0 : 1)); col.push(tmpCol.r, tmpCol.g, tmpCol.b); }
     const o = (N - 1) * (radial + 1);
     for (let k = 0; k < radial; k++) { idx.push(c0, k, k + 1); idx.push(c1, o + k + 1, o + k); }
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx);
+  if (paint) g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.computeVertexNormals();
   if (!open) { // weld the seam normals so the toon bands don't show a crease
     const nr = g.attributes.normal;
@@ -476,7 +515,7 @@ function loftGeo(secs, { radial = 16, steps = 5, inflate = 0, n = 2, arc0 = 0, a
 function loft(secs, mat, o = {}) {
   const m = new THREE.Mesh(loftGeo(secs, o), mat);
   const t = o.outline ?? .032;
-  if (t > 0 && !o.open) m.add(new THREE.Mesh(loftGeo(secs, { ...o, inflate: t }), OUTLINE));
+  if (t > 0 && !o.open) m.add(new THREE.Mesh(loftGeo(secs, { ...o, paint: null, inflate: t }), OUTLINE));
   return m;
 }
 const texLoader = new THREE.TextureLoader();
@@ -499,7 +538,7 @@ function makeHorse() {
   body.add(loft(bodySecs, coat, { radial: 22, steps: 6 }));
   // blanket and saddle
   const blanketSecs = [[-.46, 1.635, 0, .49, .455], [-.1, 1.6, 0, .52, .47], [.3, 1.62, 0, .5, .49], [.44, 1.64, 0, .48, .495]];
-  const sideMat = c => new THREE.MeshToonMaterial({ color: c, gradientMap: gradMap, side: THREE.DoubleSide });
+  const sideMat = sideToon;
   body.add(loft(blanketSecs, sideMat(C.blanket), { open: true, inflate: .03, arc0: -.5, arc1: Math.PI + .5, radial: 20, steps: 4 }));
   for (const [x0, x1] of [[-.46, -.36], [.33, .44]]) body.add(loft([[x0, 1.63, 0, .5, .465], [x1, 1.63, 0, .5, .48]], sideMat(C.cream), { open: true, inflate: .036, arc0: -.5, arc1: Math.PI + .5, radial: 20, steps: 1 }));
   for (const [a0, a1] of [[-.5, -.38], [Math.PI + .38, Math.PI + .5]]) body.add(loft(blanketSecs, sideMat(C.cream), { open: true, inflate: .038, arc0: a0, arc1: a1, radial: 3, steps: 4 }));
@@ -646,33 +685,315 @@ function makeHunter() {
   return { root, aim, gunMount, gun: null };
 }
 
-function makeDog(def) {
-  const c = def.c, root = new THREE.Group(), body = new THREE.Group(); root.add(body);
-  const w = def.wide ? 1.25 : 1;
-  body.add(part('sphere', c.body, [0, .56, 0], [.5, .25 * w, .24 * w]));
-  if (c.patch) body.add(part('sphere', c.patch, [.18, .5, 0], [.28, .19 * w, .245 * w], [0, 0, 0], { outline: 0 }));
-  const head = new THREE.Group(); head.position.set(.5, .82, 0); body.add(head);
-  head.add(part('sphere', c.body, [0, 0, 0], [.22 * w, .2, .2 * w]));
-  head.add(part('box', c.snout || c.body, [.2, -.06, 0], [.22, .12, .14 * w]));
-  head.add(part('sphere', 0x161616, [.32, -.02, 0], [.045, .04, .045], [0, 0, 0], { outline: 0 }));
-  for (const s of [1, -1]) head.add(part('sphere', 0x161616, [.14, .07, .12 * s], [.035, .04, .03], [0, 0, 0], { outline: 0 }));
-  for (const s of [1, -1]) {
-    if (def.earUp) head.add(part('cone', c.ear, [-.02, .2, .11 * s], [.07, .18, .05], [.2 * s, 0, 0]));
-    else head.add(part('box', c.ear, [-.03, -.04, .2 * w * s], [.12, .26, .05], [.25 * s, 0, .25]));
+/* ---------- dogs: four breeds, from art/dog-*-sheet.png ---------- */
+const sideToonCache = new Map();
+function sideToon(c) { if (!sideToonCache.has(c)) sideToonCache.set(c, new THREE.MeshToonMaterial({ color: c, gradientMap: gradMap, side: THREE.DoubleSide })); return sideToonCache.get(c); }
+const VC = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: gradMap });
+const angDiff = (a, b) => ((a - b + Math.PI) % TAU + TAU) % TAU - Math.PI;
+// A fully volumetric bulldog. All markings are vertex colours on the mesh.
+function makeBulldog(def) {
+  const root = new THREE.Group(), body = new THREE.Group(), head = new THREE.Group();
+  root.add(body);
+  const cream = 0xe8d9bf, brown = 0x75604e, dark = 0x30241f;
+  const mats = new Map();
+  const material = color => {
+    if (!mats.has(color)) mats.set(color, toon(color));
+    return mats.get(color);
+  };
+  const skin = VC;
+  // Rounded boxes provide the planes of the skull and paws without hard seams.
+  function form(parent, pos, size, color, power = 1, paint = null) {
+    const g = new THREE.SphereGeometry(1, 24, 16), p = g.attributes.position, colors = [];
+    const c = new THREE.Color();
+    for (let i = 0; i < p.count; i++) {
+      const xyz = [p.getX(i), p.getY(i), p.getZ(i)].map(v => Math.sign(v) * Math.pow(Math.abs(v), power));
+      p.setXYZ(i, xyz[0] * size[0], xyz[1] * size[1], xyz[2] * size[2]);
+      if (paint) { c.setHex(paint(...xyz)); colors.push(c.r, c.g, c.b); }
+    }
+    g.computeVertexNormals();
+    if (paint) g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    const m = new THREE.Mesh(g, paint ? skin : material(color));
+    const t = Math.min(size[0], size[1], size[2]) > .03 ? .016 : 0;
+    if (t) { const o = new THREE.Mesh(g, OUTLINE); o.scale.set(1 + t / size[0], 1 + t / size[1], 1 + t / size[2]); m.add(o); }
+    m.position.set(...pos); parent.add(m); return m;
   }
-  body.add(part('cyl', 0xd23b2b, [.42, .72, 0], [.16 * w, .06, .16 * w], [0, 0, .9], { outline: .02 }));
-  const tail = new THREE.Group(); tail.position.set(-.48, .68, 0); body.add(tail);
-  tail.add(part('cyl', c.patch && def.earUp ? c.patch : c.body, [0, .17, 0], [.045, .36, .045], [0, 0, 0], { outline: .02 }));
-  tail.rotation.z = .8;
+  function sweep(parent, sections, color, paint = null, n = 2) {
+    const m = loft(sections, paint ? skin : material(color), { radial: 24, steps: 5, n, outline: .022, paint });
+    parent.add(m); return m;
+  }
+  function crease(parent, points, radius, color) {
+    const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(p => new THREE.Vector3(...p))), 16, radius, 6, false), material(color));
+    parent.add(m);
+  }
+  const coat = (x,y,z) => {
+    const a = Math.hypot((x + .25) / .31, (y - .86) / .29, (z - .15) / .37);
+    const b = Math.hypot((x - .23) / .13, (y - .91) / .22, (z + .16) / .28);
+    return mixHex(brown, cream, sstep(.92, 1.04, Math.min(a,b)));
+  };
+  sweep(body, [[-.6,.78,0,.02,.03],[-.52,.78,0,.19,.21],[-.37,.79,0,.225,.22],[-.16,.8,0,.2,.19],[.05,.77,0,.265,.28],[.27,.77,0,.29,.31],[.43,.81,0,.235,.27],[.48,.89,0,.1,.12]], cream, coat);
+  const headX = .35;
+  head.position.set(headX,.82,0); body.add(head);
+  sweep(head, [[-.08,-.02,0,.225,.21],[.02,.14,0,.24,.22],[.15,.29,0,.205,.19]], cream);
+  // Broad forehead, short stop, cheek muscles and a projecting lower jaw.
+  const facePaint = (x,y,z) => z > .16 && x < .65 && y > -.65 ? brown : cream;
+  form(head,[.21,.35,0],[.205,.215,.24],cream,.67,facePaint);
+  form(head,[.285,.235,0],[.18,.145,.23],cream,.8);
+  form(head,[.39,.155,0],[.15,.065,.175],0xc5ac91,.65);
+  for (const s of [-1,1]) {
+    // Eyes wrap onto the front-side corner so they read from both cameras.
+    form(head,[.345,.37,.176*s],[.045,.038,.037],dark);
+    form(head,[.373,.372,.19*s],[.021,.025,.022],0x825128);
+    form(head,[.383,.373,.197*s],[.012,.019,.014],0x171310);
+    form(head,[.389,.383,.204*s],[.006,.006,.006],0xfff5dc);
+    const brow = form(head,[.322,.408,.171*s],[.065,.025,.056],s>0?brown:cream);
+    brow.rotation.z = -.13;
+    form(head,[.415,.255,.092*s],[.135,.104,.115],cream,.78);
+    crease(head,[[.50,.23,.075*s],[.49,.18,.12*s],[.41,.16,.165*s],[.34,.19,.19*s]],.006,0x765b49);
+    for (const [x,y,z] of [[.517,.262,.075],[.514,.24,.102],[.50,.275,.113]]) form(head,[x,y,z*s],[.004,.004,.004],0x8f7660);
+    // A tapered, folded ear with thickness, rather than an oval attached to the cheek.
+    const ear = new THREE.Group(); head.add(ear);
+    const shape = new THREE.Shape();
+    shape.moveTo(.04,.50); shape.quadraticCurveTo(.13,.56,.21,.48);
+    shape.lineTo(.19,.36); shape.quadraticCurveTo(.17,.27,.10,.29);
+    shape.quadraticCurveTo(.035,.34,.04,.50);
+    const g = new THREE.ExtrudeGeometry(shape,{depth:.025,bevelEnabled:true,bevelSize:.012,bevelThickness:.009,bevelSegments:2,steps:1,curveSegments:6});
+    const m = new THREE.Mesh(g,material(s>0?brown:0xb29b7f));
+    m.position.z=.225*s; if(s<0) m.scale.z=-1;
+    ear.add(m);
+    crease(head,[[.065,.48,.263*s],[.125,.46,.271*s],[.16,.36,.269*s]],.007,0x604b3c);
+  }
+  form(head,[.53,.292,0],[.055,.047,.079],dark,.7);
+  for(const s of [-1,1]) form(head,[.575,.299,.04*s],[.009,.013,.018],0x100f0e);
+  crease(head,[[.55,.26,0],[.54,.22,0],[.51,.2,0]],.005,dark);
+  crease(head,[[.34,.46,-.085],[.35,.48,0],[.34,.46,.085]],.006,0xc3ad92);
+  // Leather collar follows the rising neck; buckle sits on its visible underside.
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(.237,.032,8,40),material(0x963c29));
+  collar.rotation.y=Math.PI/2; collar.rotation.z=-.58; collar.position.set(.015,.09,0); head.add(collar);
+  form(head,[.17,-.005,.135],[.035,.046,.038],0xb48a43,.35);
+  form(head,[.178,-.004,.153],[.022,.03,.025],0x743623,.35);
+  const legs=[];
+  // Same gait and joints as the other breeds: wrists fold and hocks flex while running.
+  for(const [x,z,off,front] of [[.30,.21,0,true],[.30,-.21,.6,true],[-.43,.18,Math.PI,false],[-.43,-.18,Math.PI+.6,false]]) {
+    const pivot=new THREE.Group(); pivot.position.set(x,.73,z); body.add(pivot);
+    const sections=front
+      ? [[-.015,.04,0,.09,.12],[.005,-.12,0,.085,.105],[.025,-.3,0,.067,.074],[.012,-.5,0,.057,.061],[.025,-.62,0,.065,.065]]
+      : [[0,.05,0,.115,.16],[.055,-.12,0,.1,.13],[.065,-.24,0,.075,.085],[-.07,-.43,0,.05,.06],[-.045,-.6,0,.054,.058]];
+    const ji=3, [jx,jy]=sections[ji];
+    sweep(pivot,sections.slice(0,ji+1),cream);
+    const knee=new THREE.Group(); knee.position.set(jx,jy,0); pivot.add(knee);
+    sweep(knee,sections.slice(ji).map(([a,b,c,w,h])=>[a-jx,b-jy,c,w,h]),cream);
+    form(knee,[0,0,0],[sections[ji][3]*1.08,sections[ji][4]*1.08,sections[ji][3]*1.08],cream);
+    const footX=(front?.075:.005)-jx, footY=-.655-jy;
+    form(knee,[footX,footY,0],[.105,.065,.082],cream,.7);
+    for(const zz of [-.027,.027]) crease(knee,[[footX+.095,footY+.01,zz],[footX+.10,footY-.02,zz]],.0035,0x9c826a);
+    legs.push({pivot,knee,off,front});
+  }
+  const tail=new THREE.Group(); tail.position.set(-.55,.84,0); body.add(tail);
+  sweep(tail,[[0,0,0,.065,.065],[-.14,.005,0,.058,.055],[-.25,.08,0,.043,.045],[-.28,.23,0,.025,.025],[-.25,.32,0,.004,.004]],brown,(x,y)=>y>.18?cream:brown);
+  root.add(blob(.76,.4)); root.scale.setScalar(def.scale*1.15);
+  return {root,body,head,headX,tail,legs,phase:rand(0,TAU)};
+}
+/* ---------- 2D cut-out puppets (ChatGPT art, web/art/cutout) ----------
+   Each animal is drawn by ChatGPT as separate pieces with round joints. The pieces are cut
+   from one sheet, joint knobs are recoloured to the surrounding fur, and the pieces are hung
+   on a joint rig that always faces the camera. */
+const CUTOUTS = {
+  beagle: {
+    src: 'art/cutout/beagle-parts.png', px: .0015, ground: [330, 845], legScale: .85,
+    balls: [[586, 105], [65, 364], [558, 378], [891, 385], [1672, 388], [1216, 495], [1035, 795], [287, 500], [318, 793], [614, 582], [1585, 577]],
+    pieces: {
+      body:   { box: [32, 76, 696, 428] },
+      head:   { box: [772, 132, 1192, 428], pivot: [891, 385], parent: 'body', at: [586, 105], z: .03 },
+      ear:    { box: [1236, 164, 1424, 384], pivot: [1398, 196], parent: 'head', at: [935, 205], z: -.05 },
+      tail:   { box: [1524, 72, 1732, 432], pivot: [1672, 388], parent: 'body', at: [118, 175], z: -.02 },
+      frontU: { box: [132, 472, 368, 840], pivot: [287, 500], parent: 'body', at: [558, 378], z: -.01 },
+      frontL: { box: [576, 544, 828, 836], pivot: [614, 582], parent: 'frontU', at: [318, 793], z: -.001 },
+      hindU:  { box: [996, 464, 1272, 840], pivot: [1216, 495], parent: 'body', at: [65, 364], z: -.01 },
+      hindL:  { box: [1480, 548, 1656, 836], pivot: [1585, 577], parent: 'hindU', at: [1035, 795], z: -.001 },
+    },
+  },
+};
+const cutoutSheets = new Map();
+function loadCutoutSheet(def) {
+  if (cutoutSheets.has(def.src)) return cutoutSheets.get(def.src);
+  const p = new Promise(res => {
+    const img = new Image(); img.src = def.src;
+    img.onload = () => {
+      const W = img.width, H = img.height, c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const id = g.getImageData(0, 0, W, H), d = id.data;
+      // Hide each joint knob: paint its fill and its inner outline with the fur just beyond it,
+      // keeping only the dark pixels that sit on the piece's true silhouette edge.
+      const A = (x, y) => (x < 0 || y < 0 || x >= W || y >= H) ? 0 : d[(y * W + x) * 4 + 3];
+      const nearEdge = (x, y) => { for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) if (A(x + dx, y + dy) < 60) return true; return false; };
+      const isKnob = i => Math.hypot(d[i] - 239, d[i + 1] - 200, d[i + 2] - 165) < 34, nearKnob = i => Math.hypot(d[i] - 239, d[i + 1] - 200, d[i + 2] - 165) < 58;
+      for (const [bx, by] of def.balls) {
+        const ring = [];
+        for (let a = 0; a < 64; a++) for (const r of [40, 45, 50, 56]) {
+          const x = Math.round(bx + Math.cos(a / 64 * TAU) * r), y = Math.round(by + Math.sin(a / 64 * TAU) * r), i = (y * W + x) * 4;
+          if (A(x, y) < 220 || nearEdge(x, y) || nearKnob(i)) continue;
+          const lum = d[i] * .3 + d[i + 1] * .59 + d[i + 2] * .11;
+          if (lum > 70) ring.push([d[i], d[i + 1], d[i + 2], Math.atan2(y - by, x - bx)]);
+        }
+        if (!ring.length) continue;
+        for (let y = by - 38; y <= by + 38; y++) for (let x = bx - 38; x <= bx + 38; x++) {
+          const r = Math.hypot(x - bx, y - by); if (r > 36 || A(x, y) < 60) continue;
+          const i = (y * W + x) * 4;
+          if (!isKnob(i) && nearEdge(x, y)) continue;
+          // smooth blend of the fur around the knob, weighted toward the nearest side
+          const ang = Math.atan2(y - by, x - bx), k = r / 33; let R = 0, Gc = 0, B = 0, Wt = 0;
+          for (const q of ring) { const wgt = 1 / Math.pow(Math.abs(angDiff(q[3], ang)) * k + .35, 2); R += q[0] * wgt; Gc += q[1] * wgt; B += q[2] * wgt; Wt += wgt; }
+          d[i] = R / Wt; d[i + 1] = Gc / Wt; d[i + 2] = B / Wt; d[i + 3] = 255;
+        }
+      }
+      g.putImageData(id, 0, 0);
+      const tex = {};
+      for (const [name, pc] of Object.entries(def.pieces)) {
+        const [x0, y0, x1, y1] = pc.box, pc2 = document.createElement('canvas'); pc2.width = x1 - x0 + 8; pc2.height = y1 - y0 + 8;
+        pc2.getContext('2d').drawImage(c, x0 - 4, y0 - 4, pc2.width, pc2.height, 0, 0, pc2.width, pc2.height);
+        const t = new THREE.CanvasTexture(pc2); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; tex[name] = t;
+      }
+      res(tex);
+    };
+    img.onerror = () => res(null);
+  });
+  cutoutSheets.set(def.src, p); return p;
+}
+const cardGeo = new THREE.PlaneGeometry(1, 1);
+const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _yAxis = new THREE.Vector3(0, 1, 0);
+function makeCutoutDog(def, key) {
+  const C = CUTOUTS[key], s = C.px * def.scale * 1.15, root = new THREE.Group(), card = new THREE.Group(); root.add(card);
+  const [gx, gy] = C.ground, groups = {}, mats = [];
+  const build = (name, far) => {
+    const pc = C.pieces[name], grp = new THREE.Group();
+    const pv = pc.pivot ?? C.ground;
+    if (pc.parent) { const pp = C.pieces[pc.parent].pivot ?? C.ground; grp.position.set((pc.at[0] - pp[0]) * s, -(pc.at[1] - pp[1]) * s, pc.z ?? 0); }
+    const [x0, y0, x1, y1] = pc.box, w = x1 - x0 + 8, h = y1 - y0 + 8;
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, alphaTest: .5, side: THREE.DoubleSide, color: far ? 0xb9a898 : 0xffffff });
+    mats.push([mat, name]);
+    const m = new THREE.Mesh(cardGeo, mat); m.scale.set(w * s, h * s, 1);
+    m.position.set(((x0 + x1) / 2 - pv[0]) * s, -((y0 + y1) / 2 - pv[1]) * s, 0);
+    grp.add(m); return grp;
+  };
+  const body = build('body'); card.add(body);
+  const head = build('head'); body.add(head);
+  const ear = build('ear', true); head.add(ear);
+  const tail = build('tail'); body.add(tail);
   const legs = [];
-  for (const [lx, lz, off] of [[.3, .13, 0], [.3, -.13, .6], [-.3, .13, Math.PI], [-.3, -.13, Math.PI + .6]]) {
-    const pivot = new THREE.Group(); pivot.position.set(lx, .44, lz * w); body.add(pivot);
-    pivot.add(part('cyl', c.body, [0, -.2, 0], [.07, .4, .07], [0, 0, 0], { outline: .03 }));
-    legs.push({ pivot, off });
+  for (const [front, far, off] of [[1, 1, .6], [0, 1, Math.PI + .6], [1, 0, 0], [0, 0, Math.PI]]) {
+    const up = build(front ? 'frontU' : 'hindU', far), low = build(front ? 'frontL' : 'hindL', far);
+    up.add(low); body.add(up); up.scale.setScalar(C.legScale ?? 1);
+    if (far) { up.position.x += (front ? 40 : 30) * s; up.position.z -= .02; } else up.position.z += .005;
+    legs.push({ pivot: up, knee: low, off, front: !!front });
   }
-  root.add(blob(.7, .38));
-  root.scale.setScalar(def.scale * 1.1);
-  return { root, body, head, tail, legs, phase: rand(0, TAU) };
+  loadCutoutSheet(C).then(tex => { if (tex) for (const [mat, name] of mats) { mat.map = tex[name]; mat.needsUpdate = true; } });
+  root.add(blob(.72, .36));
+  const m = { root, body, head, headX: head.position.x, tail, ear, legs, phase: rand(0, TAU), cutout: true, card };
+  m.face = yaw => {
+    // card faces the camera; mirror it when the dog heads screen-left
+    root.updateWorldMatrix(true, false);
+    root.getWorldQuaternion(_q); _q.invert(); card.quaternion.copy(_q.multiply(camera.quaternion));
+    _v.set(Math.cos(yaw), 0, -Math.sin(yaw)).applyQuaternion(root.parent ? root.parent.getWorldQuaternion(_q2) : _q2.identity());
+    _v2.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    const sgn = _v.dot(_v2) < -.05 ? -1 : _v.dot(_v2) > .05 ? 1 : (card.scale.x || 1);
+    card.scale.x = sgn;
+  };
+  return m;
+}
+
+function makeDog(def, opt = {}) {
+  if (def.look.cutout && !opt.force3d && CUTOUTS[def.look.cutout]) return makeCutoutDog(def, def.look.cutout);
+  if (def.look.bulldog) return makeBulldog(def);
+  const P = def.look, root = new THREE.Group(), body = new THREE.Group(); root.add(body);
+  const bw = P.bw ?? 1, bh = P.bh ?? 1, L = P.legL ?? 1, hw = P.headW ?? 1, ml = P.muzzleL ?? 1, len = P.len ?? 1;
+  const by = .26 + .42 * L, lh = by - .02, flat = c => () => c;
+  // body: rump → hips → tucked loin → deep ribcage → chest
+  const bodyPaint = P.paintBody || flat(P.coat);
+  const bs = [[-.56, .08, .03, .04], [-.5, .07, .15, .17], [-.38, .05, .2, .2], [-.18, .07, .135, .148], [.02, .04, .165, .19], [.2, .01, .205, .23], [.36, .03, .2, .235], [.48, .08, .15, .19], [.55, .12, .05, .08]]
+    .map(([x, y, w, h]) => [x * len, by + y * bh, 0, w * bw, h * bh]);
+  body.add(loft(bs, VC, { radial: 32, steps: 12, paint: (x, y, z, sn, cs, a) => bodyPaint(x / len, y - by, z, sn, cs, a) }));
+  // neck + head (one group so the bite lunge moves both)
+  const headX = .4 * len, head = new THREE.Group(); head.position.set(headX, by + .1, 0); body.add(head);
+  const H = new THREE.Group(); H.position.set(-headX, -(by + .1), 0); head.add(H);
+  const nH = P.neckH ?? .4, hy = by + nH, hx = .4 * len + .22, hs = P.headS ?? 1.3, thick = bw > 1.2 ? 1.18 : 1;
+  const neckPaint = P.paintNeck || flat(P.coat);
+  const n0 = [.34 * len, by + .04], n2 = [hx - .04, hy - .07], n1 = [lerp(n0[0], n2[0], .5), lerp(n0[1], n2[1], .55)];
+  H.add(loft([[n0[0], n0[1], 0, .14 * bw, .17 * bh], [n1[0], n1[1], 0, .125 * hw * thick, .14 * thick], [n2[0], n2[1], 0, .11 * hw, .11]], VC, { radial: 24, steps: 8, paint: (x, y, z, sn, cs) => neckPaint(sn, cs) }));
+  if (P.dewlap) H.add(loft([[n0[0] + .08, n0[1] + .02, 0, .05, .04], [n1[0] + .05, n1[1] - .06, 0, .07, .06], [n2[0] + .02, n2[1] - .06, 0, .05, .04]], toon(P.coat), { radial: 12, outline: .016 }));
+  const nd = new THREE.Vector2(n2[0] - n0[0], n2[1] - n0[1]).normalize();
+  H.add(loft([[n1[0] - nd.x * .025, n1[1] - nd.y * .025, 0, .125 * hw * thick, .14 * thick], [n1[0] + nd.x * .025, n1[1] + nd.y * .025, 0, .122 * hw * thick, .137 * thick]], sideToon(0xb8322a), { open: true, inflate: .02, radial: 18, steps: 1 }));
+  H.add(part('box', 0xd4a640, [n1[0] + .1 * thick, n1[1] - .09 * thick, 0], [.035, .05, .055], [0, 0, Math.atan2(nd.y, nd.x)], { outline: .01 }));
+  if (P.fluffy) {
+    H.add(part('sphere', 0xf2ece4, [n0[0] + .1, n0[1] - .02, 0], [.11, .15, .13], [0, 0, .35], { outline: .02 }));
+    for (let i = 0; i < 3; i++) H.add(part('cone', 0xf2ece4, [n0[0] + .08 + i * .02, n0[1] - .14, (i - 1) * .06], [.04, .09, .03], [0, 0, Math.PI - .2], { outline: .012 }));
+  }
+  // skull, scaled about its centre so each breed can carry a bigger or smaller head
+  const K = new THREE.Group(); K.position.set(hx, hy, 0); K.scale.setScalar(hs); H.add(K);
+  const KK = new THREE.Group(); KK.position.set(-hx, -hy, 0); K.add(KK);
+  const headPaint = P.paintHead || flat(P.coat), hp = (x, y, z, sn, cs) => headPaint(x - hx, y - hy, z, sn, cs);
+  const tipX = hx + .15 + .15 * ml;
+  const sk = P.skullH ?? 1, eyeS = P.eyeS ?? 1;
+  KK.add(loft([[hx - .15, hy + .02, 0, .05 * hw, .05 * sk], [hx - .1, hy + .04, 0, .12 * hw, .12 * sk], [hx - .02, hy + .045, 0, .13 * hw, .125 * sk], [hx + .06, hy + .035, 0, .115 * hw, .105 * sk], [hx + .1, hy + .005, 0, .072 * hw, .084 * (sk < 1 ? 1.08 : 1)], [hx + .11 + .13 * ml, hy - .03, 0, .062 * hw, .066 * (sk < 1 ? 1.12 : 1)], [tipX - .01, hy - .036, 0, .046 * hw, .05], [tipX + .006, hy - .04, 0, .02, .02]], VC, { radial: 26, steps: 8, n: 2.3, paint: hp }));
+  KK.add(loft([[hx, hy - .06, 0, .065 * hw, .04], [hx + .08 + .1 * ml, hy - .085, 0, .05 * hw, .03], [tipX - .03, hy - .085, 0, .03 * hw, .02]], VC, { radial: 12, paint: hp, outline: .02 }));
+  const noseS = P.noseS ?? 1;
+  KK.add(part('sphere', 0x141010, [tipX - .002, hy - .026, 0], [.032 * noseS, .028 * noseS, .04 * Math.min(1.2, hw) * noseS], [0, 0, 0], { outline: .008 }));
+  for (const s of [1, -1]) {
+    if (!P.flews) KK.add(part('sphere', 0, [hx + .03, hy - .035, .08 * hw * s], [.065, .058, .048], [0, 0, 0], { mat: toon(P.muzzle ?? headPaint(.03, -.03, .085, 0, 0)), outline: 0 }));
+    const ex = hx + .075, ey = hy + .055, ez = .085 * hw * s, fx = .88, fz = .48 * s;
+    KK.add(part('sphere', 0x24160e, [ex, ey, ez], [.036 * eyeS, .038 * eyeS, .03 * eyeS], [0, -.5 * s, 0], { outline: .008 }));
+    KK.add(part('sphere', P.iris ?? 0x8a5424, [ex + fx * .02 * eyeS, ey, ez + fz * .02 * eyeS], [.024 * eyeS, .027 * eyeS, .02 * eyeS], [0, -.5 * s, 0], { outline: 0 }));
+    KK.add(part('sphere', 0x0e0a08, [ex + fx * .03 * eyeS, ey, ez + fz * .03 * eyeS], [.013 * eyeS, .016 * eyeS, .012 * eyeS], [0, -.5 * s, 0], { outline: 0 }));
+    KK.add(part('sphere', 0xfff8e8, [ex + fx * .035 * eyeS, ey + .012 * eyeS, ez + fz * .035 * eyeS], [.007 * eyeS, .007 * eyeS, .006 * eyeS], [0, 0, 0], { outline: 0 }));
+    KK.add(part('sphere', 0, [hx + .068, hy + .09, .082 * hw * s], [.042, .018, .034], [0, .55 * s, -.15], { mat: toon(headPaint(.045, .1, .09, .2, 0)), outline: 0 }));
+    KK.add(tube([[hx + .03, hy - .062, .07 * hw * s], [hx + .1 + .08 * ml, hy - .072, .052 * hw * s], [tipX - .02, hy - .066, .025 * hw * s]], .006, 0x2a1810));
+    if (P.flews) KK.add(loft([[hx + .05, hy - .05, .072 * hw * s, .02, .05], [hx + .08 + .1 * ml, hy - .1 * (P.flewL ?? 1), .066 * hw * s, .024, .06], [tipX - .03, hy - .08, .045 * hw * s, .014, .03]], toon(P.flews), { radial: 10, outline: .012 }));
+    if (P.ear === 'up') {
+      KK.add(part('cone', P.earC, [hx - .07, hy + .18, .085 * hw * s], [.06, .16, .03], [.22 * s, 0, .12]));
+      KK.add(part('cone', 0x9a5a50, [hx - .06, hy + .17, .088 * hw * s], [.032, .1, .016], [.22 * s, 0, .12], { outline: 0 }));
+    } else if (P.ear === 'rose') {
+      KK.add(loft([[hx - .09, hy + .11, .085 * hw * s, .014, .035], [hx - .08, hy + .1, .12 * hw * s, .016, .04], [hx - .06, hy + .07, .135 * hw * s, .01, .022]], toon(P.earC), { radial: 10, outline: .012 }));
+    } else if (P.ear === 'fold') {
+      KK.add(loft([[hx - .09, hy + .105, .078 * hw * s, .016, .045], [hx - .055, hy + .075, .135 * hw * s, .028, .075], [hx - .025, hy - .005, .145 * hw * s, .025, .085], [hx + .005, hy - .055, .13 * hw * s, .014, .04]], toon(P.earC), { radial: 12, outline: .014 }));
+    } else {
+      const el = P.earL ?? .3, ew = P.earW ?? 1;
+      KK.add(loft([[hx - .07, hy + .1, .095 * hw * s, .018, .05 * ew], [hx - .06, hy + .04, .128 * hw * s, .024, .08 * ew], [hx - .045, hy - .04 - el * .4, .138 * hw * s, .025, .09 * ew], [hx - .025, hy - .04 - el * .82, .13 * hw * s, .021, .071 * ew], [hx - .015, hy - .04 - el, .124 * hw * s, .012, .035 * ew]], toon(P.earC), { radial: 12, outline: .016 }));
+    }
+  }
+  if (P.chin) {
+    KK.add(part('sphere', P.muzzle ?? P.coat, [hx + .08 + .055 * ml, hy - .1, 0], [.085, .035, .095 * hw], [0, 0, 0], { outline: .014 }));
+    KK.add(tube([[hx + .015, hy - .045, .075 * hw], [hx + .045, hy - .085, 0], [hx + .015, hy - .045, -.075 * hw]], .007, 0x5a4034));
+  }
+  if (P.wrinkles) for (let i = 0; i < 3; i++) KK.add(tube([[hx - .05 + i * .035, hy + .135, .075 * hw], [hx - .03 + i * .035, hy + .168, 0], [hx - .05 + i * .035, hy + .135, -.075 * hw]], .008, P.wrinkles));
+  // legs: shoulder/thigh buried in the body, elbow, forearm, hock, paw; socks painted in
+  const legs = [], legPaint = P.paintLeg || flat(P.coat), lw = P.legW ?? (bw > 1.2 ? 1.3 : 1);
+  for (const [lx, lz, off, front] of [[.36 * len, .1 * bw, 0, 1], [.36 * len, -.1 * bw, .6, 1], [-.38 * len, .11 * bw, Math.PI, 0], [-.38 * len, -.11 * bw, Math.PI + .6, 0]]) {
+    const pivot = new THREE.Group(); pivot.position.set(lx, lh, lz); body.add(pivot);
+    const secs = front
+      ? [[0, .02, 0, .055, .08], [0, -.1, 0, .066, .088], [.01, -.2, 0, .062, .08], [0, -lh * .5, 0, .05, .056], [0, -lh * .8, 0, .042, .045], [.025, -lh * .93, 0, .048, .055], [.055, -lh + .03, 0, .055, .06], [.08, -lh + .02, 0, .034, .038]]
+      : [[0, .02, 0, .06, .1], [0, -.05, 0, .075, .12], [-.03, -.13, 0, .075, .118], [-.08, -lh * .42, 0, .055, .068], [-.12, -lh * .6, 0, .045, .05], [-.1, -lh * .84, 0, .042, .045], [-.06, -lh * .95, 0, .05, .057], [-.02, -lh + .03, 0, .055, .06], [0, -lh + .02, 0, .034, .038]];
+    const S2 = secs.map(([x, y, z, w, h]) => [x, y, z, w * lw, h * lw]), lp = (x, y) => legPaint(-y / lh);
+    const ji = front ? 4 : 4, [jx, jy] = S2[ji];
+    pivot.add(loft(S2.slice(0, 3), VC, { radial: 12, steps: 4, outline: 0, paint: lp }));
+    pivot.add(loft(S2.slice(1, ji + 1), VC, { radial: 12, steps: 6, outline: .022, paint: lp }));
+    const knee = new THREE.Group(); knee.position.set(jx, jy, 0); pivot.add(knee);
+    knee.add(loft(S2.slice(ji).map(([x, y, z, w, h]) => [x - jx, y - jy, z, w, h]), VC, { radial: 12, steps: 6, outline: .022, paint: (x, y) => legPaint(-(y + jy) / lh) }));
+    knee.add(part('sphere', 0, [0, 0, 0], [S2[ji][3] * 1.12, S2[ji][4] * 1.12, S2[ji][3] * 1.12], [0, 0, 0], { mat: toon(legPaint(-jy / lh)), outline: 0 }));
+    if (P.fluffy && front) pivot.add(part('cone', 0xf2ece4, [-.05, -lh * .3, 0], [.03, .11, .022], [0, 0, Math.PI - .5], { outline: .01 }));
+    legs.push({ pivot, knee, off, front });
+  }
+  // tail
+  const tail = new THREE.Group(); tail.position.set(-.53 * len, by + .1 * bh, 0); body.add(tail);
+  const TAILS = {
+    up:    [[0, 0, 0, .05, .056], [-.06, .13, 0, .043, .047], [-.05, .28, 0, .034, .036], [0, .41, 0, .012, .012]],
+    saber: [[0, 0, 0, .048, .052], [-.14, .08, 0, .042, .046], [-.24, .22, 0, .032, .034], [-.26, .37, 0, .01, .01]],
+    low:   [[0, 0, 0, .046, .05], [-.12, -.02, 0, .038, .042], [-.2, .06, 0, .026, .03], [-.22, .14, 0, .01, .01]],
+    bushy: [[0, 0, 0, .045, .05], [-.1, -.12, 0, .062, .07], [-.18, -.26, 0, .072, .08], [-.22, -.37, 0, .062, .068], [-.2, -.45, 0, .03, .035], [-.16, -.48, 0, .008, .008]],
+  };
+  const tailPaint = P.paintTail || flat(P.coat);
+  tail.add(loft(TAILS[P.tail], VC, { radial: 12, steps: 8, paint: (x, y, z, sn, cs, a, u) => tailPaint(u) }));
+  root.add(blob(.72, .36 * bw));
+  root.scale.setScalar(def.scale * 1.15);
+  return { root, body, head, headX, tail, legs, phase: rand(0, TAU) };
 }
 
 function makePig(cfg) {
@@ -1286,11 +1607,12 @@ function updateDogs(dt, S) {
     d.yaw = angDamp(d.yaw, wantYaw, 10, dt);
     const m = d.m; m.root.position.set(d.x, 0, d.z); m.root.rotation.y = d.yaw;
     m.phase += dt * (14 + v * .6);
-    for (const l of m.legs) l.pivot.rotation.z = Math.sin(m.phase + l.off) * .85;
+    for (const l of m.legs) { const a = m.phase + l.off; l.pivot.rotation.z = Math.sin(a) * .8; if (l.knee) l.knee.rotation.z = l.front ? -Math.max(0, Math.cos(a)) * 1.2 : Math.max(0, -Math.cos(a)) * .9; }
     m.body.position.y = Math.abs(Math.sin(m.phase)) * .1;
     m.body.rotation.z = Math.cos(m.phase) * .08;
+    m.head.rotation.z = Math.sin(m.phase + .8) * .045;
     m.tail.rotation.x = Math.sin(T * 22) * .6;
-    d.lunge -= dt; m.head.position.x = .5 + (d.lunge > 0 ? .14 : 0);
+    d.lunge -= dt; m.head.position.x = m.headX + (d.lunge > 0 ? .1 : 0);
     if (Math.random() < dt * 8) fx(d.x - .4, .2, d.z, { vx: -S * .7, vy: .6, life: .45, s0: .35, s1: 1, a: .35, color: 0xd8c39a });
   });
 }
@@ -1698,7 +2020,8 @@ function frame(now) {
   requestAnimationFrame(frame);
   const rdt = Math.min(.05, (now - last) / 1000); last = now;
   if (state === 'dying') { dieT -= rdt; if (dieT <= 0) gameOver(); }
-  if (state !== 'paused') update(rdt * timeScale, rdt);
+  if (state === 'showroom') updateShowroom(rdt);
+  else if (state !== 'paused') update(rdt * timeScale, rdt);
   renderer.render(scene, camera);
 }
 
@@ -1764,9 +2087,73 @@ $('resumeBtn').addEventListener('click', togglePause);
 $('pauseBtn').addEventListener('click', togglePause);
 $('muteBtn').addEventListener('click', () => { initAudio(); setMuted(!muted); });
 
+window.__ph = { get SR() { return SR; }, camera, horse, hunter, G, renderer, scene, get dogs() { return dogs; }, get pigs() { return pigs; }, addDog(id) { return addDog(id); }, makeDog(id) { return makeDog(DOGS[id]); }, makePig(t) { return makePig(PIGS[t]); }, spawn(t, x, z) { return spawnPig(t, x, z); }, render() { renderer.render(scene, camera); }, zoom(h, off) { const a = VW / VH; camera.left = -h * a; camera.right = h * a; camera.top = h; camera.bottom = -h; camera.updateProjectionMatrix(); if (off) CAM_OFF.set(...off); }, ff(sec) { for (let i = 0; i < sec * 60; i++) update(1 / 60, 1 / 60); renderer.render(scene, camera); }, pause() { state = 'paused'; }, hideUI() { for (const id of ['titleScreen']) $(id).hidden = true; } };
+/* =========================================================
+   Showroom (#dogs): every breed side by side, for art review
+   ========================================================= */
+const SR = { group: null, models: [], view: 'side', run: false, zoom: false, ang: 0, labels: [], focus: null };
+function openShowroom(kind) {
+  state = 'showroom';
+  for (const id of ['titleScreen', 'hud', 'touch', 'loading']) $(id).hidden = true;
+  for (const g of scenery) g.visible = false;
+  tufts.visible = flowers.visible = false; for (const l of speedLines) l.m.visible = false;
+  for (const p of pigs) removePig(p); pigs = [];
+  horse.root.visible = false; for (const d of dogs) d.m.root.visible = false;
+  SR.group = new THREE.Group(); scene.add(SR.group);
+  const ids = kind === 'bulldog' ? ['bulldog'] : ['beagle2d', ...DOG_ORDER];
+  if (kind === 'bulldog') { $('srTitle').textContent = 'Bulldog — 3D study'; SR.focus = 0; SR.fh = 1.05; }
+  const mk = id => id === 'beagle2d' ? makeCutoutDog(DOGS.beagle, 'beagle') : makeDog(DOGS[id], { force3d: true });
+  SR.models = ids.map((id, i) => { const m = mk(id); m.root.position.set((i - (ids.length - 1) / 2) * 2.3, 0, 0); SR.group.add(m.root); return m; });
+  $('srLabels').innerHTML = ids.map(id => `<div class="sr-label">${id === 'beagle2d' ? 'Beagle (2D test)' : DOGS[id].name}</div>`).join('');
+  SR.labels = [...$('srLabels').children];
+  $('showroom').hidden = false;
+  document.querySelectorAll('.sr-bar [data-view]').forEach(b => b.addEventListener('click', () => { SR.view = b.dataset.view; srButtons(); }));
+  $('srRun').addEventListener('click', () => { SR.run = !SR.run; srButtons(); });
+  $('srZoom').addEventListener('click', () => { SR.zoom = !SR.zoom; srButtons(); });
+  srButtons();
+}
+function srButtons() {
+  document.querySelectorAll('.sr-bar [data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === SR.view));
+  $('srRun').classList.toggle('on', SR.run); $('srRun').textContent = SR.run ? 'Stand' : 'Run';
+  $('srZoom').classList.toggle('on', SR.zoom); $('srZoom').textContent = SR.zoom ? 'Zoom out' : 'Zoom in';
+}
+function updateShowroom(dt) {
+  T += dt; SR.ang += dt * .6;
+  const rot = { side: 0, front: -Math.PI / 2, back: Math.PI / 2, top: 0, game: 0, spin: SR.ang }[SR.view];
+  for (const m of SR.models) {
+    m.root.rotation.y = rot;
+    m.phase += dt * (SR.run ? 14 : 0);
+    for (const l of m.legs) { const a = m.phase + l.off; l.pivot.rotation.z = SR.run ? Math.sin(a) * .8 : 0; if (l.knee) l.knee.rotation.z = !SR.run ? 0 : l.front ? -Math.max(0, Math.cos(a)) * 1.2 : Math.max(0, -Math.cos(a)) * .9; }
+    m.body.position.y = SR.run ? Math.abs(Math.sin(m.phase)) * .1 : 0;
+    m.head.rotation.z = SR.run ? Math.sin(m.phase + .8) * .045 : Math.sin(T * 1.8 + m.phase) * .008;
+    m.tail.rotation.x = Math.sin(T * (SR.run ? 22 : 6)) * (SR.run ? .6 : .25);
+    if (m.cutout) { m.tail.rotation.x = 0; m.tail.rotation.z = Math.sin(T * (SR.run ? 14 : 5)) * .18; m.ear.rotation.z = SR.run ? Math.sin(m.phase) * .25 : 0; m.body.rotation.z = SR.run ? Math.cos(m.phase) * .05 : 0; }
+  }
+  camera.updateMatrixWorld();
+  for (const m of SR.models) if (m.face) m.face(rot);
+  const a = VW / VH, span = SR.models.length * 2.3;
+  let h = Math.max(1.25, (span / 2 + .3) / a);
+  if (SR.zoom) h *= .5;
+  const fx = SR.focus != null ? SR.models[SR.focus].root.position.x : 0;
+  if (SR.focus != null) h = SR.fh ?? .85;
+  camera.left = -h * a; camera.right = h * a; camera.top = h; camera.bottom = -h; camera.updateProjectionMatrix();
+  const cy = .75;
+  if (SR.view === 'top') { camera.position.set(fx, 40, .001); camera.lookAt(fx, 0, 0); }
+  else if (SR.view === 'game') { camera.position.set(fx, 46, 33); camera.lookAt(fx, 0, 0); }
+  else { camera.position.set(fx, cy + 4, 40); camera.lookAt(fx, cy, 0); }
+  camera.updateMatrixWorld();
+  SR.models.forEach((m, i) => {
+    tmpV.set(m.root.position.x, -.15, m.root.position.z).project(camera);
+    const el = SR.labels[i]; el.style.left = ((tmpV.x + 1) * .5 * VW) + 'px'; el.style.top = ((1 - tmpV.y) * .5 * VH) + 'px';
+    el.hidden = SR.zoom;
+  });
+}
+
 /* boot: attract mode behind the title */
 resetGame(); state = 'title';
 G.updateMatrixWorld(true);
 $('loading').hidden = true;
+if (location.hash === '#dogs') openShowroom('dogs');
+if (location.hash === '#bulldog') openShowroom('bulldog');
 requestAnimationFrame(frame);
 </script>

@@ -181,6 +181,58 @@ The hunter holds these, so a **side view only** is fine. Keep them believable, p
 
 ---
 
+## 3D models with Tripo (ChatGPT plugin)
+
+Tripo turns a reference sheet into a real textured 3D model. The models replace the code-built characters in the game. The code-built ones stay in as a fallback until each model arrives.
+
+### Start with one test model
+
+Make **only the beagle** first. Claude loads it into the game and checks it in the showroom (`#dogs`): size, facing direction, textures and animation. Once that one works end to end, do the rest.
+
+### What to give Tripo
+
+- **Image:** your existing sheet, for example `web/art/dog-beagle-sheet.png`.
+  - If Tripo asks for **one image**, crop just the **side view** and upload that.
+  - If Tripo offers **multi-view** (front, side, back), crop the **side** and **front** views from the sheet and upload them separately.
+- **Prompt to add:** *"Game-ready stylized 3D model matching this reference exactly: same proportions, colours and markings. Clean low-poly topology, hand-painted texture, no base or ground plane."*
+
+### Settings (pick the closest options Tripo shows)
+
+| Setting | Choose |
+|---|---|
+| Texture | On, with PBR if offered |
+| Detail / face count | Low-poly or ~10,000–20,000 faces for animals (~30,000 for the horse) |
+| Rigging | **Auto-rig, quadruped** if offered |
+| Animations | **Idle, walk, run** for dogs and pigs. **Idle, gallop** for the horse |
+| Export format | **GLB** (one file with textures and animations inside) |
+| Texture size | 1024 for dogs and pigs, 2048 for the horse |
+
+If Tripo has no rigging or animation, export the plain model anyway. Claude adds a running bob and sway in code so it still moves.
+
+### Save the files here
+
+Put every model in `pig-hunter/web/models/` with these names:
+
+| Asset | File |
+|---|---|
+| Horse (with saddle) | `horse.glb` |
+| Dogs | `dog-beagle.glb`, `dog-bulldog.glb`, `dog-bloodhound.glb`, `dog-sheepdog.glb` |
+| Pigs | `pig-piglet.glb`, `pig-sow.glb`, `pig-boar.glb`, `pig-razorback.glb`, `pig-mudhog.glb`, `pig-ironhog.glb`, `pig-tusker.glb`, `pig-bertha.glb` |
+| Guns (later) | `gun-revolver.glb`, `gun-shotgun.glb`, … |
+
+Keep each file **under 8 MB**. If one is bigger, re-export with fewer faces or a smaller texture.
+
+### Check before handing over
+
+- [ ] Opens in Tripo's viewer looking like the sheet, with nothing missing (ears, tail, collar)
+- [ ] Textures look right: no smeared or stretched patches on the face
+- [ ] No ground plane or base under the feet
+- [ ] If rigged: the run or walk animation plays without legs bending through the body
+
+Then tell Claude: **"beagle.glb is ready"**, or for a batch, **"all dogs are ready"**.
+
+---
+
 ## Fix-up prompts (when ChatGPT gets it wrong)
 
 Paste one into the same chat, right after the image that went wrong.
