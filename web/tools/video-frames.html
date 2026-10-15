@@ -38,11 +38,19 @@ window.result = null;
   const masks = frames.map(id => { const m = new Uint8Array(mw * mh); for (let y = 0; y < mh; y++) for (let x = 0; x < mw; x++) m[y * mw + x] = id.data[((y * S) * W + x * S) * 4 + 3] > 128 ? 1 : 0; return m; });
   const diff = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += a[i] ^ b[i]; return s; };
   // best loop: start i, length L (8..26), mismatch between frame i and i+L (pose) + i+1 and i+L+1 (motion)
-  let best = null;
-  for (let i = 6; i < n - 12; i++) for (let L = 10; L <= 28 && i + L + 1 < n; L++) {
+  // one stride: the shortest loop length whose best seam is nearly as clean as the cleanest
+  const byL = {};
+  for (let L = 8; L <= 28; L++) for (let i = 6; i + L + 1 < n; i++) {
     const cost = diff(masks[i], masks[i + L]) + diff(masks[i + 1], masks[i + L + 1]);
-    if (!best || cost < best.cost) best = { i, L, cost };
+    if (!byL[L] || cost < byL[L].cost) byL[L] = { i, L, cost };
   }
+  const minCost = Math.min(...Object.values(byL).map(b => b.cost));
+  // the stride is the first sharp dip: a local minimum far below the typical mismatch
+  const Ls = Object.keys(byL).map(Number).sort((a, b) => a - b), med = Ls.map(L => byL[L].cost).sort((a, b) => a - b)[Ls.length >> 1];
+  let best = Ls.map(L => byL[L]).find(b => byL[b.L - 1] && byL[b.L + 1] && b.cost < byL[b.L - 1].cost && b.cost < byL[b.L + 1].cost && b.cost < med * .3)
+    || Object.values(byL).sort((a, b) => a.L - b.L).find(b => b.cost <= minCost * 1.35 + 40);
+  if (q.get('L')) best = byL[+q.get('L')];
+  log('cost by length: ' + Object.values(byL).map(b => b.L + ':' + b.cost).join(' '));
   log(`loop: start ${best.i}, ${best.L} frames, seam cost ${best.cost}`);
   const pick = frames.slice(best.i, best.i + best.L);
   // measure each frame: bbox, horizontal centre of mass, feet
@@ -51,18 +59,20 @@ window.result = null;
   const avgCx = meas.reduce((s, m) => s + m.cx, 0) / meas.length, maxBottom = Math.max(...meas.map(m => m.y1));
   const halfW = Math.max(...meas.map(m => Math.max(avgCx - m.x0, m.x1 - avgCx))) + 8;
   const top = Math.min(...meas.map(m => m.y0)) - 6, cellH = maxBottom - top + 6, cellW = Math.ceil(halfW * 2);
-  const atlas = document.createElement('canvas'); atlas.width = cellW * pick.length; atlas.height = cellH;
-  const ag = atlas.getContext('2d');
+  // fit phones: atlas no wider than 4096 px and frames no taller than 256 px
+  const sc = Math.min(1, 4096 / (cellW * pick.length), 256 / cellH), cw2 = Math.floor(cellW * sc), ch2 = Math.floor(cellH * sc);
+  const atlas = document.createElement('canvas'); atlas.width = cw2 * pick.length; atlas.height = ch2;
+  const ag = atlas.getContext('2d'); ag.imageSmoothingQuality = 'high';
   pick.forEach((id, k) => {
     const fc = document.createElement('canvas'); fc.width = W; fc.height = H; fc.getContext('2d').putImageData(id, 0, 0);
-    const shift = Math.round(avgCx - meas[k].cx) * .0; // video is on a treadmill already; keep natural sway
-    ag.drawImage(fc, avgCx - halfW + shift, top, cellW, cellH, k * cellW, 0, cellW, cellH);
+    const shift = Math.round(avgCx - meas[k].cx) * .8; // cancel most of the treadmill drift, keep a little natural sway
+    ag.drawImage(fc, avgCx - halfW - shift, top, cellW, cellH, k * cw2, 0, cw2, ch2);
   });
   document.getElementById('out').appendChild(atlas);
   const url = atlas.toDataURL('image/png');
   const res = await fetch(`http://127.0.0.1:5180/?name=${encodeURIComponent('frames-video/' + q.get('name') + '-run.png')}`, { method: 'POST', body: url });
   const info = await res.text();
   log('saved ' + info);
-  window.result = { n, loop: best, cell: [cellW, cellH], frames: pick.length, info };
+  window.result = { n, loop: best, cell: [cw2, ch2], frames: pick.length, info };
 })().catch(e => { log('ERROR ' + e); window.result = { error: String(e) }; });
 </script>

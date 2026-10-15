@@ -595,7 +595,7 @@ function topView(key, which = 'side') {
 // centre and feet so the cycle doesn't wobble, and packed into one atlas.
 const RUN_SHEETS = { horse: 'horse', beagle: 'beagle', bulldog: 'bulldog', hound: 'bloodhound', shepherd: 'sheepdog', piglet: 'piglet', sow: 'sow', boar: 'boar', razorback: 'razorback', mudhog: 'mudhog', armored: 'ironhog', brute: 'tusker', king: 'bertha' };
 // Smoother runs cut from image-to-video clips (frame count per stride), see tools/video-frames.html
-const VIDEO_RUNS = { horse: 11 }, VIDEO_SIZE = { horse: 1.32 }, ART_V = 4; // ART_V busts the browser cache when frames are re-cut
+const VIDEO_RUNS = { horse: 11, beagle: 14 }, VIDEO_SIZE = { horse: 1.32, beagle: 1.3 }, ART_V = 6; // ART_V busts the browser cache when frames are re-cut
 const runCache = new Map();
 function runAtlas(key, src = 'auto') {
   const ck = key + ':' + src;
@@ -2301,12 +2301,12 @@ function openShowroom(kind) {
   for (const p of pigs) removePig(p); pigs = [];
   horse.root.visible = false; for (const d of dogs) d.m.root.visible = false;
   SR.group = new THREE.Group(); scene.add(SR.group);
-  const ids = kind === 'horse' ? ['horse-sheet', 'horse-video'] : kind === 'bulldog' ? ['bulldog'] : ['beagle2d', ...DOG_ORDER];
-  if (kind === 'horse') { $('srTitle').textContent = 'Horse gallop: before / after'; SR.run = true; SR.gap = 4; }
+  const ids = kind === 'horse' ? ['horse-sheet', 'horse-video', 'beagle-sheet', 'beagle-video'] : kind === 'bulldog' ? ['bulldog'] : ['beagle2d', ...DOG_ORDER];
+  if (kind === 'horse') { $('srTitle').textContent = 'Video runs: before / after'; SR.run = true; SR.gap = 3.4; }
   if (kind === 'bulldog') { $('srTitle').textContent = 'Bulldog — 3D study'; SR.focus = 0; SR.fh = 1.05; }
-  const mk = id => id.startsWith('horse-') ? spriteActor('horse', 4.3, { offX: .3, runSrc: id === 'horse-sheet' ? 'sheet' : 'auto' }) : id === 'beagle2d' ? makeCutoutDog(DOGS.beagle, 'beagle') : makeDog(DOGS[id], { force3d: true });
+  const mk = id => /-(sheet|video)$/.test(id) ? spriteActor(id.split('-')[0], id.startsWith('horse') ? 4.3 : 1.85 * DOGS.beagle.scale * 1.1, { offX: id.startsWith('horse') ? .3 : 0, runSrc: id.endsWith('sheet') ? 'sheet' : 'auto' }) : id === 'beagle2d' ? makeCutoutDog(DOGS.beagle, 'beagle') : makeDog(DOGS[id], { force3d: true });
   SR.models = ids.map((id, i) => { const m = mk(id); m.root.position.set((i - (ids.length - 1) / 2) * SR.gap, 0, 0); SR.group.add(m.root); return m; });
-  const label = id => ({ 'horse-sheet': 'Before: 6 drawn frames', 'horse-video': 'After: 11 video frames', beagle2d: 'Beagle (2D test)' })[id] ?? DOGS[id].name;
+  const label = id => ({ 'horse-sheet': 'Horse before (6)', 'horse-video': 'Horse after (11)', 'beagle-sheet': 'Beagle before (6)', 'beagle-video': 'Beagle after (14)', beagle2d: 'Beagle (2D test)' })[id] ?? DOGS[id].name;
   $('srLabels').innerHTML = ids.map(id => `<div class="sr-label">${label(id)}</div>`).join('');
   SR.labels = [...$('srLabels').children];
   $('showroom').hidden = false;

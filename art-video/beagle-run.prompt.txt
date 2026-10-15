@@ -1,0 +1,14 @@
+Use the first frame as the exact character reference. Create a clean 2D sprite animation for frame extraction.
+
+The beagle GALLOPS IN PLACE in a smooth, fast, natural, repeating gallop cycle, side view facing right: front legs reach far forward, back legs push off, the body stretches long with all four paws off the ground, front paws land, back legs swing forward under the body, and again. The back flexes, the long ears bounce, the white-tipped tail stays up and wags a little, the head stays level and eager. Several identical strides in a row, like a real hound running happily.
+
+For sprite extraction:
+- fixed camera, no camera movement, no zoom, no pan, no rotation
+- the beagle stays in the centre of the frame and does NOT travel across the screen (running on the spot, like on a treadmill)
+- same size in every frame, full body always visible
+- side view facing right the whole time, no turning around
+- plain solid bright green background (#00FF00) the whole time, no ground, no shadow, no scenery, no dust, no other objects
+
+Keep the design exactly unchanged: same 2D hand-painted style, same dark-brown outlines, same tan, black and white tricolour coat, same long brown ears, same red collar with gold buckle, same white-tipped tail, same proportions.
+
+Strictly do NOT add: motion blur, speed lines, smears, trails, afterimages, particles, dust, glow, light changes, text, or any extra objects.
