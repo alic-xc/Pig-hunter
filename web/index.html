@@ -365,7 +365,7 @@ function resize() {
   VW = window.innerWidth; VH = window.innerHeight;
   renderer.setSize(VW, VH, false);
   const a = VW / VH;
-  halfH = Math.max(8.5, 7.8 / a); halfW = halfH * a;
+  halfH = Math.max(7.4, 6.8 / a); halfW = halfH * a;
   const f = Math.min(1, halfW / 14, halfH / 11.5); BX = 10 * f; BZ = 6.5 * f;
   camera.left = -halfW; camera.right = halfW; camera.top = halfH; camera.bottom = -halfH;
   camera.updateProjectionMatrix();
@@ -530,7 +530,190 @@ function tube(points, r, color) {
 }
 
 /* ---------- horse: chestnut quarter horse, from art/horse-sheet.png ---------- */
+/* =========================================================
+   2D mode: every animal is a flat overhead sprite taken from the
+   top-down view (middle drawing) of its ChatGPT reference sheet.
+   Run-cycle frame sheets will replace these one animal at a time.
+   ========================================================= */
+const MODE_2D = true;
+const SPRITE_SHEETS = {
+  horse: 'horse-sheet', beagle: 'dog-beagle-sheet', bulldog: 'dog-bulldog-sheet', hound: 'dog-bloodhound-sheet', shepherd: 'dog-sheepdog-sheet',
+  piglet: 'pig-piglet-sheet', sow: 'pig-sow-sheet', boar: 'pig-boar-sheet', razorback: 'pig-razorback-sheet', mudhog: 'pig-mudhog-sheet',
+  armored: 'pig-ironhog-sheet', brute: 'pig-tusker-sheet', king: 'pig-bertha-sheet',
+};
+const topViewCache = new Map();
+function topView(key, which = 'side') {
+  const ck = key + ':' + which;
+  if (topViewCache.has(ck)) return topViewCache.get(ck);
+  const p = new Promise(res => {
+    const img = new Image(); img.src = `art/sprites-src/${SPRITE_SHEETS[key]}.jpg`;
+    img.onerror = () => res(null);
+    img.onload = () => {
+      const W = img.width, H = img.height, c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const id = g.getImageData(0, 0, W, H), d = id.data;
+      // 1. remove the white paper: flood fill from the border through near-white pixels
+      const bg = new Uint8Array(W * H), q = new Int32Array(W * H); let qh = 0, qt = 0;
+      const white = i => Math.min(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]) > 226;
+      const push = i => { if (!bg[i] && white(i)) { bg[i] = 1; q[qt++] = i; } };
+      for (let x = 0; x < W; x++) { push(x); push((H - 1) * W + x); }
+      for (let y = 0; y < H; y++) { push(y * W); push(y * W + W - 1); }
+      while (qh < qt) { const i = q[qh++], x = i % W, y = (i / W) | 0; if (x > 0) push(i - 1); if (x < W - 1) push(i + 1); if (y > 0) push(i - W); if (y < H - 1) push(i + W); }
+      for (let i = 0; i < W * H; i++) if (bg[i]) d[i * 4 + 3] = 0;
+      // soften the fringe left by the paper
+      for (let i = 0; i < W * H; i++) if (!bg[i] && (bg[i - 1] || bg[i + 1] || bg[i - W] || bg[i + W])) { const m = Math.min(d[i * 4], d[i * 4 + 1], d[i * 4 + 2]); if (m > 190) d[i * 4 + 3] = 110; }
+      // 2. find the drawings; keep the one in the middle third (the top-down view)
+      const lab = new Int32Array(W * H).fill(-1), comps = [];
+      for (let s = 0; s < W * H; s++) {
+        if (lab[s] !== -1 || d[s * 4 + 3] < 60) continue;
+        const cc = { n: 0, sx: 0, x0: W, x1: 0, y0: H, y1: 0, id: comps.length }; comps.push(cc);
+        let h2 = 0, t2 = 0; q[t2++] = s; lab[s] = cc.id;
+        while (h2 < t2) {
+          const i = q[h2++], x = i % W, y = (i / W) | 0; cc.n++; cc.sx += x;
+          if (x < cc.x0) cc.x0 = x; if (x > cc.x1) cc.x1 = x; if (y < cc.y0) cc.y0 = y; if (y > cc.y1) cc.y1 = y;
+          for (const j of [i - 1, i + 1, i - W, i + W]) if (j >= 0 && j < W * H && lab[j] === -1 && d[j * 4 + 3] >= 60 && Math.abs((j % W) - x) <= 1) { lab[j] = cc.id; q[t2++] = j; }
+        }
+      }
+      const inBand = cc => which === 'top' ? cc.sx / cc.n > W * .3 && cc.sx / cc.n < W * .7 : cc.sx / cc.n < W * .36;
+      const mid = comps.filter(inBand).sort((a, b) => b.n - a.n)[0];
+      if (!mid) return res(null);
+      const pad = 0.04 * W, keep = new Set(comps.filter(cc => cc.n > 30 && (cc.x0 + cc.x1) / 2 > mid.x0 - pad && (cc.x0 + cc.x1) / 2 < mid.x1 + pad && (cc.y0 + cc.y1) / 2 > mid.y0 - pad && (cc.y0 + cc.y1) / 2 < mid.y1 + pad).map(cc => cc.id));
+      let x0 = W, x1 = 0, y0 = H, y1 = 0;
+      for (const cc of comps) if (keep.has(cc.id)) { x0 = Math.min(x0, cc.x0); x1 = Math.max(x1, cc.x1); y0 = Math.min(y0, cc.y0); y1 = Math.max(y1, cc.y1); }
+      for (let i = 0; i < W * H; i++) if (d[i * 4 + 3] > 0 && lab[i] !== -1 && !keep.has(lab[i])) d[i * 4 + 3] = 0;
+      g.putImageData(id, 0, 0);
+      const cw = x1 - x0 + 9, ch = y1 - y0 + 9, out = document.createElement('canvas'); out.width = cw; out.height = ch;
+      out.getContext('2d').drawImage(c, x0 - 4, y0 - 4, cw, ch, 0, 0, cw, ch);
+      const tex = new THREE.CanvasTexture(out); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      res({ tex, aspect: cw / ch });
+    };
+  });
+  topViewCache.set(ck, p); return p;
+}
+// Run cycles: 6-frame ChatGPT sheets in art/frames. Frames are separated along a winding
+// path that avoids the drawings (tails overlap the next frame), then lined up on body
+// centre and feet so the cycle doesn't wobble, and packed into one atlas.
+const RUN_SHEETS = { horse: 'horse', beagle: 'beagle', bulldog: 'bulldog', hound: 'bloodhound', shepherd: 'sheepdog', piglet: 'piglet', sow: 'sow', boar: 'boar', razorback: 'razorback', mudhog: 'mudhog', armored: 'ironhog', brute: 'tusker', king: 'bertha' };
+const runCache = new Map();
+function runAtlas(key) {
+  if (runCache.has(key)) return runCache.get(key);
+  const p = new Promise(res => {
+    if (!RUN_SHEETS[key]) return res(null);
+    const img = new Image(); img.src = `art/frames/${RUN_SHEETS[key]}-run.png`;
+    img.onerror = () => res(null);
+    img.onload = () => {
+      const W = img.width, H = img.height, N = 6, c = document.createElement('canvas'); c.width = W; c.height = H;
+      const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, W, H).data, A = (x, y) => d[(y * W + x) * 4 + 3];
+      // seams: cheapest top-to-bottom path through empty pixels near each sixth of the width
+      const seams = [];
+      for (let k = 1; k < N; k++) {
+        const x0 = Math.round(k * W / N - 90), x1 = Math.round(k * W / N + 90), w = x1 - x0 + 1;
+        const M = new Float32Array(w * H), from = new Int8Array(w * H);
+        for (let y = 0; y < H; y++) for (let i = 0; i < w; i++) {
+          const cost = (A(x0 + i, y) > 40 ? 1 : 0) + Math.abs(i - w / 2) * .0004;
+          if (y === 0) { M[i] = cost; continue; }
+          let best = M[(y - 1) * w + i], bf = 0;
+          if (i > 0 && M[(y - 1) * w + i - 1] < best) { best = M[(y - 1) * w + i - 1]; bf = -1; }
+          if (i < w - 1 && M[(y - 1) * w + i + 1] < best) { best = M[(y - 1) * w + i + 1]; bf = 1; }
+          M[y * w + i] = cost + best; from[y * w + i] = bf;
+        }
+        let bi = 0; for (let i = 1; i < w; i++) if (M[(H - 1) * w + i] < M[(H - 1) * w + bi]) bi = i;
+        const seam = new Int32Array(H);
+        for (let y = H - 1; y >= 0; y--) { seam[y] = x0 + bi; bi += from[y * w + bi]; }
+        seams.push(seam);
+      }
+      const left = (k, y) => k === 0 ? 0 : seams[k - 1][y], right = (k, y) => k === N - 1 ? W : seams[k][y];
+      // measure each frame: bounding box, horizontal centre of mass, lowest pixel (feet)
+      const fr = [];
+      for (let k = 0; k < N; k++) {
+        let x0 = W, x1 = 0, y0 = H, y1 = 0, sx = 0, n = 0;
+        for (let y = 0; y < H; y++) for (let x = left(k, y); x < right(k, y); x++) if (A(x, y) > 40) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; sx += x; n++; }
+        fr.push({ x0, x1, y0, y1, cx: sx / Math.max(1, n) });
+      }
+      const halfW = Math.max(...fr.map(f => Math.max(f.cx - f.x0, f.x1 - f.cx))) + 6, cellH = Math.max(...fr.map(f => f.y1 - f.y0)) + 10, cellW = Math.ceil(halfW * 2);
+      const out = document.createElement('canvas'); out.width = cellW * N; out.height = cellH;
+      const og = out.getContext('2d'), od = og.createImageData(out.width, out.height);
+      for (let k = 0; k < N; k++) {
+        const f = fr[k], ox = Math.round(k * cellW + halfW - f.cx), oy = cellH - 4 - f.y1;
+        for (let y = f.y0; y <= f.y1; y++) for (let x = Math.max(f.x0, left(k, y)); x < Math.min(f.x1 + 1, right(k, y)); x++) {
+          const si = (y * W + x) * 4, a = d[si + 3]; if (a < 8) continue;
+          const tx = x + ox, ty = y + oy; if (tx < k * cellW || tx >= (k + 1) * cellW || ty < 0 || ty >= cellH) continue;
+          const ti = (ty * out.width + tx) * 4;
+          // pull the reddish fringe the generator leaves on edges toward the outline colour
+          const fringe = a < 200 ? .55 : 0;
+          od.data[ti] = d[si] * (1 - fringe) + 40 * fringe; od.data[ti + 1] = d[si + 1] * (1 - fringe) + 26 * fringe; od.data[ti + 2] = d[si + 2] * (1 - fringe) + 18 * fringe; od.data[ti + 3] = a;
+        }
+      }
+      og.putImageData(od, 0, 0);
+      const tex = new THREE.CanvasTexture(out); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      res({ tex, n: N, aspect: cellW / cellH });
+    };
+  });
+  runCache.set(key, p); return p;
+}
+// Upright cards: feet on the ground, always turned to the camera, mirrored when heading screen-left.
+const cardGeo2D = new THREE.PlaneGeometry(1, 1); cardGeo2D.translate(0, .5, 0);
+const _cq = new THREE.Quaternion(), _cv = new THREE.Vector3(), _cr = new THREE.Vector3();
+function spriteActor(key, length, { offX = 0, shadow = [.5, .3] } = {}) {
+  const root = new THREE.Group(), body = new THREE.Group(), card = new THREE.Group(); root.add(body); body.add(card);
+  const mat = new THREE.MeshBasicMaterial({ alphaTest: .45, side: THREE.DoubleSide, transparent: false, opacity: 1, visible: false });
+  const mesh = new THREE.Mesh(cardGeo2D, mat); mesh.position.x = offX; card.add(mesh);
+  // `mat` is what the game's hit-flash code talks to; the real material tints from it
+  const act = { root, body, card, head: new THREE.Group(), tail: new THREE.Group(), legs: [], phase: rand(0, TAU), sprite: true, mesh, realMat: mat, mat: { emissive: new THREE.Color(), dispose() { mat.dispose(); } }, L: length, Hd: length * .7 };
+  mesh.scale.set(length, act.Hd, 1);
+  runAtlas(key).then(run => {
+    if (run) {
+      // each actor gets its own view of the shared atlas so frames tick independently
+      const t = run.tex.clone(); t.repeat.set(1 / run.n, 1); t.offset.set(0, 0); t.needsUpdate = true;
+      act.frames = run.n; act.L = length * 1.12; mat.map = t; mat.visible = true; mat.needsUpdate = true;
+      act.Hd = act.L / run.aspect; mesh.scale.set(act.L, act.Hd, 1); act.onSize?.(act.L, act.Hd); return;
+    }
+    topView(key, 'side').then(r => { if (!r) return; mat.map = r.tex; mat.visible = true; mat.needsUpdate = true; act.Hd = length / r.aspect; mesh.scale.set(length, act.Hd, 1); act.onSize?.(length, act.Hd); });
+  });
+  root.add(blob(shadow[0] * length, shadow[1] * length));
+  act.face = () => {
+    root.updateWorldMatrix(true, false); root.getWorldQuaternion(_cq);
+    _cv.set(1, 0, 0).applyQuaternion(_cq); _cr.set(1, 0, 0).applyQuaternion(camera.quaternion);
+    const d = _cv.dot(_cr);
+    if (Math.abs(d) > .08) card.scale.x = d < 0 ? -1 : 1;
+    _cq.invert(); card.quaternion.copy(_cq).multiply(camera.quaternion);
+  };
+  return act;
+}
+// gallop feel for a still drawing: a rocking-horse lope with a little lift
+function spriteGait(m, phase, amt = 1) {
+  if (m.frames) {
+    // the drawn run cycle carries the motion; just pick the frame and add a light lift
+    const f = Math.floor(((phase / TAU) % 1 + 1) % 1 * m.frames);
+    if (m.realMat.map) m.realMat.map.offset.x = f / m.frames;
+    m.mesh.position.y = Math.abs(Math.sin(phase)) * .025 * m.Hd * amt;
+    m.mesh.rotation.z = 0; m.mesh.scale.set(m.L, m.Hd, 1);
+    m.face(); return;
+  }
+  m.mesh.position.y = Math.abs(Math.sin(phase)) * .07 * m.Hd * amt;
+  m.mesh.rotation.z = Math.cos(phase) * .07 * amt;
+  m.mesh.scale.set(m.L * (1 + .03 * Math.sin(phase * 2) * amt), m.Hd * (1 - .03 * Math.sin(phase * 2) * amt), 1);
+  m.face();
+}
+function makeHorse2D() {
+  const a = spriteActor('horse', 4.3, { offX: .3, shadow: [.55, .28] });
+  // the 3D rider sits in the saddle on the card, so he leans and flips with the horse
+  a.onSize = (L, Hd) => { hunter.root.position.set(.3 - L * .06, Hd * .68, .05); };
+  return a;
+}
+function makeDog2D(def, key) {
+  const a = spriteActor(key, 1.85 * def.scale * 1.1);
+  a.headX = 0; return a;
+}
+function makePig2D(cfg, key) {
+  const a = spriteActor(key, 2.0);
+  a.root.scale.setScalar(cfg.size * 1.08);
+  return a;
+}
+
 function makeHorse() {
+  if (MODE_2D) return makeHorse2D();
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const coat = texMat('art/tex/horse-coat.jpg', 0xb35a2b, 2.5, 2);
   const C = { points: 0x4a2a1a, mane: 0x3f2416, sock: 0xf3e6cf, hoof: 0x3b2d26, muzzle: 0x7a4430, leather: 0x5b331d, leather2: 0x6e4126, blanket: 0xb8352a, cream: 0xf1dfba, brass: 0xc99a3c };
@@ -902,6 +1085,7 @@ function makeCutoutDog(def, key) {
 }
 
 function makeDog(def, opt = {}) {
+  if (MODE_2D && !opt.force3d) return makeDog2D(def, Object.keys(DOGS).find(k => DOGS[k] === def));
   if (def.look.cutout && !opt.force3d && CUTOUTS[def.look.cutout]) return makeCutoutDog(def, def.look.cutout);
   if (def.look.bulldog) return makeBulldog(def);
   const P = def.look, root = new THREE.Group(), body = new THREE.Group(); root.add(body);
@@ -997,6 +1181,7 @@ function makeDog(def, opt = {}) {
 }
 
 function makePig(cfg) {
+  if (MODE_2D) return makePig2D(cfg, Object.keys(PIGS).find(k => PIGS[k] === cfg));
   const root = new THREE.Group(), body = new THREE.Group(); root.add(body);
   const mat = toon(cfg.body).clone();
   body.add(part('sphere', 0, [0, .62, 0], [.78, .52, .52], [0, 0, 0], { mat }));
@@ -1218,7 +1403,7 @@ let heldGun = null;
 const scenery = [];
 
 const horse = makeHorse(); G.add(horse.root);
-const hunter = makeHunter(); hunter.root.position.set(-.06, 2.3, 0); horse.body.add(hunter.root);
+const hunter = makeHunter(); hunter.root.position.set(-.06, 2.3, 0); (horse.card || horse.body).add(hunter.root);
 
 function setHeldGun(id) {
   if (hunter.gun) hunter.gunMount.remove(hunter.gun);
@@ -1537,6 +1722,7 @@ function updatePigs(dt, S) {
     m.root.rotation.y = p.yaw; m.root.position.set(p.x, 0, p.z);
     p.phase += dt * (6 + spd * 2.2);
     for (const l of m.legs) l.pivot.rotation.z = Math.sin(p.phase + l.off) * .7;
+    if (m.sprite) { spriteGait(m, p.phase, 1); const hit = Math.min(.75, m.mat.emissive.r * .8); m.realMat.color.setRGB(1, 1 - hit, 1 - hit); }
     m.body.position.y = Math.abs(Math.sin(p.phase)) * .08;
     m.head.rotation.z = Math.sin(p.phase * .5) * .08;
   }
@@ -1608,6 +1794,7 @@ function updateDogs(dt, S) {
     const m = d.m; m.root.position.set(d.x, 0, d.z); m.root.rotation.y = d.yaw;
     m.phase += dt * (14 + v * .6);
     for (const l of m.legs) { const a = m.phase + l.off; l.pivot.rotation.z = Math.sin(a) * .8; if (l.knee) l.knee.rotation.z = l.front ? -Math.max(0, Math.cos(a)) * 1.2 : Math.max(0, -Math.cos(a)) * .9; }
+    if (m.sprite) spriteGait(m, m.phase, 1);
     m.body.position.y = Math.abs(Math.sin(m.phase)) * .1;
     m.body.rotation.z = Math.cos(m.phase) * .08;
     m.head.rotation.z = Math.sin(m.phase + .8) * .045;
@@ -1753,6 +1940,7 @@ function updatePlayer(dt, S) {
   horse.body.rotation.z = Math.cos(ph) * .06;
   horse.head.rotation.z = Math.sin(ph + 1) * .1;
   horse.tail.rotation.z = -1.0 + Math.sin(ph * 2) * .15;
+  if (horse.sprite) spriteGait(horse, ph, 1);
   hunter.root.rotation.z = -Math.cos(ph) * .05;
   r.visible = !(player.inv > 0 && player.dashT <= 0 && state !== 'title' && Math.floor(T * 16) % 2 === 0);
   // aim
@@ -2087,7 +2275,7 @@ $('resumeBtn').addEventListener('click', togglePause);
 $('pauseBtn').addEventListener('click', togglePause);
 $('muteBtn').addEventListener('click', () => { initAudio(); setMuted(!muted); });
 
-window.__ph = { get SR() { return SR; }, camera, horse, hunter, G, renderer, scene, get dogs() { return dogs; }, get pigs() { return pigs; }, addDog(id) { return addDog(id); }, makeDog(id) { return makeDog(DOGS[id]); }, makePig(t) { return makePig(PIGS[t]); }, spawn(t, x, z) { return spawnPig(t, x, z); }, render() { renderer.render(scene, camera); }, zoom(h, off) { const a = VW / VH; camera.left = -h * a; camera.right = h * a; camera.top = h; camera.bottom = -h; camera.updateProjectionMatrix(); if (off) CAM_OFF.set(...off); }, ff(sec) { for (let i = 0; i < sec * 60; i++) update(1 / 60, 1 / 60); renderer.render(scene, camera); }, pause() { state = 'paused'; }, hideUI() { for (const id of ['titleScreen']) $(id).hidden = true; } };
+window.__ph = { topView, runAtlas, get SR() { return SR; }, god() { player.hp = 99; player.maxHp = 99; }, get state() { return state; }, camera, horse, hunter, G, renderer, scene, get dogs() { return dogs; }, get pigs() { return pigs; }, addDog(id) { return addDog(id); }, makeDog(id) { return makeDog(DOGS[id]); }, makePig(t) { return makePig(PIGS[t]); }, spawn(t, x, z) { return spawnPig(t, x, z); }, render() { renderer.render(scene, camera); }, zoom(h, off) { const a = VW / VH; camera.left = -h * a; camera.right = h * a; camera.top = h; camera.bottom = -h; camera.updateProjectionMatrix(); if (off) CAM_OFF.set(...off); }, ff(sec) { for (let i = 0; i < sec * 60; i++) update(1 / 60, 1 / 60); renderer.render(scene, camera); }, pause() { state = 'paused'; }, hideUI() { for (const id of ['titleScreen']) $(id).hidden = true; } };
 /* =========================================================
    Showroom (#dogs): every breed side by side, for art review
    ========================================================= */

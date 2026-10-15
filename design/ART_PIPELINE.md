@@ -181,6 +181,62 @@ The hunter holds these, so a **side view only** is fine. Keep them believable, p
 
 ---
 
+## Run-cycle frames (2D game, side view)
+
+The game is 2D: each animal stands up in the tilted world, seen from the side, facing right (the game flips it when it runs left). Each animal needs **one sprite sheet of 6 gallop frames**.
+
+Do each animal **in the same ChatGPT chat as its reference sheet**. If you start a new chat, upload the animal's sheet from `web/art/` first.
+
+### Template prompt (swap in the two bracketed parts)
+
+```
+Using the exact [ANIMAL] from our reference sheet (same colours, markings, outline and shading), create a RUN CYCLE SPRITE SHEET for a 2D game.
+
+Character details to keep: [DETAILS]
+
+- View: exactly from the SIDE, facing RIGHT, same angle as the side view on the reference sheet
+- 6 frames of one smooth [GAIT] loop in a single row, left to right. Frame 6 must flow back into frame 1.
+- Head, body and markings must stay the SAME size, shape and position in every frame. Only the legs (and a small ear/tail swing) change.
+- All 6 frames the same size, evenly spaced, with clear empty space between them, nothing touching
+- Transparent background (PNG), no ground, no shadow, no text, no frame numbers
+```
+
+### What to swap in, and where to save
+
+Save every file in `web/art/frames/`.
+
+| # | [ANIMAL] | [DETAILS] | [GAIT] | Save as |
+|---|---|---|---|---|
+| 1 | chestnut quarter horse | dark mane and tail, white blaze, white socks, western saddle with red-and-cream blanket, bridle and reins, NO rider | gallop | `horse-run.png` |
+| 2 | beagle | tan/black/white tricolour, long brown ears, red collar, white-tipped tail held up | gallop | `beagle-run.png` |
+| 3 | American bulldog | stocky and wide, cream with grey-brown patches, grey patch round one eye, red collar | bounding run | `bulldog-run.png` |
+| 4 | bloodhound | red-brown, very long droopy ears, loose wrinkled face, red collar | gallop | `bloodhound-run.png` |
+| 5 | border collie | black and white, white chest and blaze, upright ears, bushy white-tipped tail, red collar | gallop | `sheepdog-run.png` |
+| 6 | pink piglet | small round body, big ears, curly tail | trotting run | `piglet-run.png` |
+| 7 | mother sow | large, rose-pink with brown spots, determined frowning brows | heavy run | `sow-run.png` |
+| 8 | wild boar | brown bristly coat, dark spiky back ridge, small tusks | gallop | `boar-run.png` |
+| 9 | razorback hog | lean grey-brown, tall bristle ridge along the spine, small tusks | fast gallop | `razorback-run.png` |
+| 10 | mud hog | chunky pink-brown hog splashed with dark mud | trotting run | `mudhog-run.png` |
+| 11 | iron hog | pink hog with dented metal helmet and riveted metal plate strapped on its back | heavy trot | `ironhog-run.png` |
+| 12 | tusker boar | huge dark-brown boar, thick curved tusks, shaggy mane, scarred snout | heavy gallop | `tusker-run.png` |
+| 13 | Big Bertha | enormous rose-pink queen sow, small gold crown with red jewels, fierce brows | heavy run | `bertha-run.png` |
+
+### Check each sheet before saving
+
+- [ ] Exactly 6 frames in one row, none touching
+- [ ] Background is see-through (checkerboard), not white
+- [ ] Head and body look the same size and in the same place in all 6 frames. Only the legs move.
+- [ ] Facing right, side view
+
+**Fix-ups if needed:**
+- Wobbling between frames: *"The body changes between frames. Redo it with the head and body identical in every frame. Only the legs may move."*
+- White background: *"Same image with a transparent background."*
+- Wrong count: *"Redo it with exactly 6 frames in a single row."*
+
+You can hand them over in batches: "dogs frames ready", "pigs frames ready", "horse frames ready". Each animal without frames keeps using its still drawing with the rocking run, so the game always works.
+
+---
+
 ## 3D models with Tripo (ChatGPT plugin)
 
 Tripo turns a reference sheet into a real textured 3D model. The models replace the code-built characters in the game. The code-built ones stay in as a fallback until each model arrives.
